@@ -463,7 +463,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     }
     ui.add_space(8.0);
     // Top result: the first artist when the query names one, otherwise the first song.
-    ui.horizontal_top(|ui| {
+    super::mobile::row_or_column(ui, |ui| {
         if let Some(top) = r.artists.first().filter(|a| a.title.eq_ignore_ascii_case(q.trim())) {
             top_result(ui, top, false, acts);
         } else if let Some(t) = r.tracks.first() {
@@ -537,7 +537,7 @@ fn top_result(ui: &mut Ui, c: &Card, pick: bool, acts: &mut Vec<Action>) {
     ui.vertical(|ui| {
         ui.label(RichText::new("Top result").font(theme::bold(24.0)));
         ui.add_space(8.0);
-        let (rect, resp) = ui.allocate_exact_size(vec2(420.0, 236.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(420.0), 236.0), Sense::click());
         let resp = named(resp, &c.title).on_hover_cursor(egui::CursorIcon::PointingHand);
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.2);
         ui.painter().rect_filled(rect, 14.0, theme::glass(0.07 + 0.05 * h));
@@ -585,8 +585,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let tracks = &c.tracks;
     let is_album = c.is_album;
     ui.add_space(18.0);
-    ui.horizontal_top(|ui| {
-        let (img, _) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
+    super::mobile::row_or_column(ui, |ui| {
+        let img = super::mobile::cover_slot(ui, 232.0);
         widgets::soft_shadow(ui, img, 10.0, 40.0, 0.5);
         paint_cover(ui, img, &c.thumbs, theme::card_radius() + 2.0, 1.0);
         ui.add_space(26.0);
@@ -596,7 +596,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.vertical(|ui| {
                 ui.set_max_width(full.min(760.0));
                 ui.label(RichText::new(if is_album { "ALBUM" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::text_dim()));
-                ui.label(RichText::new(&c.title).font(theme::bold(40.0)).color(theme::text()));
+                ui.label(RichText::new(&c.title).font(theme::bold(super::mobile::title_size(ui.ctx(), 40.0))).color(theme::text()));
                 ui.add_space(2.0);
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
                 widgets::linked_text(ui, r.min, &c.byline(), &c.artists, theme::regular(15.0), theme::text_dim(), r.width(), acts);
@@ -720,7 +720,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     }
     super::shell::vgradient(ui.painter(), Rect::from_min_max(pos2(hero.left(), hero.center().y - 40.0), hero.max), Color32::TRANSPARENT, theme::shade(0.85));
     let base = hero.left_bottom() + vec2(28.0, -30.0);
-    ui.painter().text(base - vec2(0.0, 44.0), Align2::LEFT_BOTTOM, &a.name, theme::bold(58.0), Color32::WHITE);
+    ui.painter().text(base - vec2(0.0, 44.0), Align2::LEFT_BOTTOM, &a.name, theme::bold(super::mobile::title_size(ui.ctx(), 58.0)), Color32::WHITE);
     if let Some(s) = a.subscribers {
         ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, format!("{} subscribers", compact(s)), theme::regular(14.0), theme::text_dim());
     }
@@ -781,7 +781,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
 fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
     page_title(ui, "Library");
     ui.add_space(12.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         let tabs = [
             (LibTab::Playlists, "Playlists"),
@@ -792,6 +792,10 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             (LibTab::Downloads, "Downloads"),
         ];
         for (t, label) in tabs {
+            // No uploads or downloads in the Android build.
+            if cfg!(target_os = "android") && matches!(t, LibTab::Uploads | LibTab::Downloads) {
+                continue;
+            }
             if chip(ui, label, tab == t).clicked() {
                 // Tabs swap in place (no history entry); the current one refreshes.
                 if tab == t {
@@ -815,10 +819,11 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
         return;
     }
     let grid = |ui: &mut Ui, cards: &[Card], acts: &mut Vec<Action>| {
+        let w = super::mobile::card_width(ui, CARD, 20.0);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
             for c in cards {
-                card(ui, c, CARD, false, acts);
+                card(ui, c, w, false, acts);
             }
         });
     };
@@ -965,7 +970,11 @@ pub(super) enum SettingsTab {
 
 impl SettingsTab {
     /// Most used first, which is how they're listed.
+    #[cfg(not(target_os = "android"))]
     const ALL: [Self; 7] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::General, Self::Shortcuts, Self::About];
+    /// No keyboard to have shortcuts for.
+    #[cfg(target_os = "android")]
+    const ALL: [Self; 6] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::General, Self::About];
 
     fn label(self) -> &'static str {
         match self {
@@ -1577,7 +1586,12 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        setting_row(ui, "Font", Some("For the whole app and the lyrics. Any font installed on this PC works, e.g. one made for your language."), |ui| {
+        let font_desc = if cfg!(target_os = "android") {
+            "For the whole app and the lyrics. Any font on this phone works, e.g. one made for your language."
+        } else {
+            "For the whole app and the lyrics. Any font installed on this PC works, e.g. one made for your language."
+        };
+        setting_row(ui, "Font", Some(font_desc), |ui| {
             if let Some(name) = font_picker(ui) {
                 theme::set_font_choice(&name);
                 app.chrome_applied = None;
@@ -1593,7 +1607,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         f.section = "Themes".to_owned();
         crate::preset::all().iter().filter(|p| f.words.is_empty() || words_match(&f.words, &f.section, &format!("{} {} {}", p.name, p.creators.join(" "), p.blurb))).collect()
     });
-    if !shown.is_empty() {
+    if !shown.is_empty() && !super::mobile::hidden_setting("Themes") {
         FILTER.with_borrow_mut(|f| f.total += shown.len());
         section_label(ui, "Themes", settings_value(Some(&current)).as_deref());
         if !filtering() {
@@ -2127,7 +2141,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new("Installed on this PC").font(theme::semibold(12.0)).color(theme::text_faint()));
+                ui.label(RichText::new(if cfg!(target_os = "android") { "On this phone" } else { "Installed on this PC" }).font(theme::semibold(12.0)).color(theme::text_faint()));
             });
             ui.add_space(4.0);
             let ctx = ui.ctx().clone();
@@ -2271,6 +2285,9 @@ pub(super) fn settings_card(ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
 /// A section of Settings: its heading, a line about it, and a card of rows. In a search
 /// it shows only the rows that match, and nothing at all if none do.
 pub(super) fn settings_section(ui: &mut Ui, title: &str, value: Option<&str>, note: Option<&str>, body: impl FnOnce(&mut Ui)) {
+    if super::mobile::hidden_setting(title) {
+        return;
+    }
     if !filtering() {
         section_label(ui, title, value);
         if let Some(n) = note {
@@ -2304,8 +2321,11 @@ pub(super) fn settings_section(ui: &mut Ui, title: &str, value: Option<&str>, no
 /// A settings row: title and description on the left, the control on the right. A search
 /// that doesn't find it leaves it out.
 pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control: impl FnOnce(&mut Ui)) {
-    if !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
+    if super::mobile::hidden_setting(title) || !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
         return;
+    }
+    if super::mobile::phone(ui.ctx()) {
+        return super::mobile::setting_row(ui, title, desc, control);
     }
     let w = ui.available_width();
     let text_w = (w - 230.0).max(200.0);

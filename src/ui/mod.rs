@@ -15,6 +15,8 @@ mod karaoke;
 mod lists;
 mod lyric_prefs;
 mod mini;
+// The Android build held upright: the phone layout.
+mod mobile;
 mod notes;
 mod nowplaying;
 mod pace;
@@ -908,6 +910,9 @@ impl App {
 
     /// Height of the bottom player area (a floating bar leaves a margin around it).
     fn bar_height(&self) -> f32 {
+        if let Some(h) = mobile::bar_height() {
+            return h;
+        }
         if self.look().chrome.player_bar == crate::preset::PlayerBar::Floating { 100.0 } else { 86.0 }
     }
 
@@ -1095,7 +1100,10 @@ impl eframe::App for App {
             // The top of the window, down to the search box's row: what's on it comes after.
             titlebar::drag_area(ui, egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), titlebar::HEIGHT)), "main");
         }
-        if !self.fullscreen {
+        let phone = mobile::phone(&ctx);
+        if phone {
+            mobile::layout(self, ui, now, covered);
+        } else if !self.fullscreen {
             let floating = look.chrome.player_bar == crate::preset::PlayerBar::Floating;
             let bar_alpha = app_style.bar_alpha.clamp(0.0, 1.0);
             let frame = if floating {
@@ -1124,7 +1132,7 @@ impl eframe::App for App {
                     shell::player_bar(self, ui, now)
                 });
         }
-        if !self.fullscreen && !covered {
+        if !self.fullscreen && !covered && !phone {
             use crate::preset::SidebarStyle;
             let side_alpha = app_style.sidebar_alpha.clamp(0.0, 1.0);
             // The logo's row is 32 points tall.

@@ -30,10 +30,12 @@ pub fn take() -> Vec<egui::Event> {
     std::mem::take(&mut *PENDING.lock().unwrap())
 }
 
+/// Whether the keyboard was last asked to show.
+static SHOWN: Mutex<bool> = Mutex::new(false);
+
 /// Show the keyboard while a text field has focus, hide it when none has. Called after
 /// each frame; only changes reach Java.
 pub fn follow_focus(wants: bool) {
-    static SHOWN: Mutex<bool> = Mutex::new(false);
     let mut shown = SHOWN.lock().unwrap();
     if *shown != wants {
         *shown = wants;
@@ -66,5 +68,20 @@ pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onKey(_env: JNIEn
         1 => push(key(egui::Key::Enter)),
         2 => push(key(egui::Key::Delete)),
         _ => {}
+    }
+}
+
+/// `Bridge.onKeyboardHidden()`: the keyboard went away by itself (Back, its own button):
+/// the text field gives up focus, so tapping it again brings the keyboard back.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onKeyboardHidden(_env: JNIEnv, _class: JClass) {
+    *SHOWN.lock().unwrap() = false;
+    if let Some(c) = CTX.get() {
+        c.memory_mut(|m| {
+            if let Some(id) = m.focused() {
+                m.surrender_focus(id);
+            }
+        });
+        c.request_repaint();
     }
 }

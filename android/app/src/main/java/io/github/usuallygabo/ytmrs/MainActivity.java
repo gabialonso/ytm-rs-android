@@ -21,11 +21,12 @@ public class MainActivity extends NativeActivity {
         System.loadLibrary("ytm_rs");
     }
 
+    private boolean imeShown;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Bridge.attach(this);
         super.onCreate(savedInstanceState);
-        // Back leaves the app as Home does: finishing the activity would end the player.
         TextInput text = new TextInput(this);
         addContentView(text, new ViewGroup.LayoutParams(1, 1));
         Bridge.setTextInput(text);
@@ -33,20 +34,28 @@ public class MainActivity extends NativeActivity {
         getWindow().getDecorView().setOnApplyWindowInsetsListener((v, insets) -> {
             Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
             Bridge.onInsets(i.left, i.top, i.right, i.bottom);
+            // Closed by Back or its own button: the text field lets go too.
+            boolean ime = insets.isVisible(WindowInsets.Type.ime());
+            if (imeShown && !ime) Bridge.onKeyboardHidden();
+            imeShown = ime;
             return v.onApplyWindowInsets(insets);
         });
-        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> moveTaskToBack(true));
+        // Back goes back in the app; with nowhere left it leaves as Home does (finishing
+        // the activity would end the player).
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
+            if (!Bridge.onBack()) moveTaskToBack(true);
+        });
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        Bridge.onVisible(true);
+        Bridge.setVisible(true);
     }
 
     @Override
     protected void onStop() {
-        Bridge.onVisible(false);
+        Bridge.setVisible(false);
         super.onStop();
     }
 

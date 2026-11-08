@@ -6,6 +6,7 @@
 # debug: the emulator (x86_64) and the phone (arm64), quick Rust build.
 # release: optimized Rust (fat LTO, slow to build), for battery and speed on the phone.
 # --install: adb install the APK on the connected device or emulator.
+# ABIS="arm64-v8a" builds only the phone's (default: arm64-v8a and x86_64).
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -24,7 +25,11 @@ case "$profile" in
 esac
 
 cd "$here/.."
-cargo ndk -t arm64-v8a -t x86_64 -P 33 -o "$here/app/src/main/jniLibs" build --lib "${cargo_flags[@]}"
+targets=()
+for abi in ${ABIS:-arm64-v8a x86_64}; do targets+=(-t "$abi"); done
+# Libraries from an earlier build for other ABIs would end up in the APK too.
+rm -rf "$here/app/src/main/jniLibs"
+cargo ndk "${targets[@]}" -P 33 -o "$here/app/src/main/jniLibs" build --lib "${cargo_flags[@]}"
 # Debug info would make the APK over a gigabyte; the symbols stay for readable crash logs.
 strip="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
 "$strip" --strip-debug "$here"/app/src/main/jniLibs/*/libytm_rs.so

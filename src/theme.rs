@@ -571,6 +571,8 @@ fn font_dirs() -> Vec<std::path::PathBuf> {
     dirs.extend(["/System/Library/Fonts", "/Library/Fonts"].map(Into::into));
     #[cfg(all(unix, not(target_os = "macos")))]
     dirs.extend(["/usr/share/fonts", "/usr/local/share/fonts"].map(Into::into));
+    #[cfg(target_os = "android")]
+    dirs.extend(["/system/fonts", "/product/fonts"].map(Into::into));
     if let Some(home) = std::env::var_os("HOME") {
         dirs.push(std::path::PathBuf::from(home).join(".local/share/fonts"));
     }

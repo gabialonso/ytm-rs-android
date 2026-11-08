@@ -29,7 +29,8 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
         return;
     }
     let screen = ctx.content_rect();
-    let full = if app.fullscreen { screen } else { Rect::from_min_max(screen.min, pos2(screen.right(), screen.bottom() - app.bar_height())) };
+    // A phone's now playing fills the screen; its controls go over the bottom (mobile.rs).
+    let full = if app.fullscreen || super::mobile::phone(ctx) { screen } else { Rect::from_min_max(screen.min, pos2(screen.right(), screen.bottom() - app.bar_height())) };
     let rect = full.translate(vec2(0.0, full.height() * (1.0 - t)));
     let look = app.look();
     let b = &look.background;
@@ -88,7 +89,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             if app.ambient_light && app.current().cloned().is_some_and(|track| app.video_mode(&track)) {
                 paint_glow(app, ui, rect);
             }
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(32.0, 20.0))));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(super::mobile::np_body(ctx, rect.shrink2(vec2(32.0, 20.0)))));
             body(app, &mut child, now);
         });
 }

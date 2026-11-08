@@ -22,6 +22,7 @@ const BRIDGE: &str = "io.github.usuallygabo.ytmrs.Bridge";
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static CTX: OnceLock<egui::Context> = OnceLock::new();
+static APP: OnceLock<Arc<Mutex<crate::ui::App>>> = OnceLock::new();
 static BRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
 pub fn data_dir() -> PathBuf {
@@ -138,10 +139,10 @@ fn create(cc: &eframe::CreationContext) -> anyhow::Result<Box<dyn eframe::App>> 
         background::wake();
     };
 
-    let volume = cc.storage.and_then(|s| s.get_string("volume")).and_then(|v| v.parse().ok()).unwrap_or(0.8f32);
-    let log_setting = cc.storage.and_then(|s| s.get_string("log_volume"));
-    let log_volume = log_setting.as_deref().is_none_or(|v| v == "1");
-    let volume = if log_setting.is_none() { volume.cbrt() } else { volume };
+    // Full volume at each start: the phone's volume keys set how loud it is, as for any
+    // other player (the slider shows only with the phone held sideways).
+    let volume = 1.0f32;
+    let log_volume = cc.storage.and_then(|s| s.get_string("log_volume")).as_deref().is_none_or(|v| v == "1");
 
     let (audio_tx, audio_rx) = unbounded();
     // The phone picks the output (speaker, headphones, Bluetooth) itself.
@@ -169,6 +170,7 @@ fn create(cc: &eframe::CreationContext) -> anyhow::Result<Box<dyn eframe::App>> 
     let app = crate::ui::App::new(backend, audio, crate::ui::Channels { resp_rx, audio_rx, media_rx }, media, bg, cc.storage);
     let shell = Shell { app: Arc::new(Mutex::new(app)), clock: Arc::new(Mutex::new((0.0, Instant::now()))) };
     background::spawn(shell.app.clone(), shell.clock.clone(), ctx, status);
+    let _ = APP.set(shell.app.clone());
     Ok(Box::new(shell))
 }
 
@@ -194,6 +196,11 @@ impl eframe::App for Shell {
         self.app.lock().unwrap().ui(ui, frame);
         // egui asks for text input while a text field has focus.
         text::follow_focus(ui.ctx().output(|o| o.ime.is_some()));
+        // egui-winit has no clipboard on Android: copy through the system's.
+        let copied: Vec<String> = ui.ctx().output(|o| o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect());
+        for t in copied {
+            call("copyText", "(Ljava/lang/String;)V", |env| Ok(vec![jstr(env, &t)?]));
+        }
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
@@ -215,6 +222,17 @@ impl eframe::App for Shell {
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
         self.app.lock().unwrap().on_exit(gl);
     }
+}
+
+/// `Bridge.onBack()`: the system's Back, in the app. False sends the app to the background.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onBack(_env: JNIEnv, _class: JClass) -> jni::sys::jboolean {
+    let Some(app) = APP.get() else { return 0 };
+    let handled = app.lock().unwrap().phone_back();
+    if let Some(c) = CTX.get() {
+        c.request_repaint();
+    }
+    handled as jni::sys::jboolean
 }
 
 /// The safe area's margins in pixels (left, top, right, bottom), from `Bridge.onInsets`.

@@ -517,6 +517,8 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
                 crate::downloads::show_file(&path);
             }
         }
+        // No downloads in the Android build.
+        None if cfg!(target_os = "android") => {}
         None => {
             if menu_action(ui, Some(icon::DOWNLOAD), "Download") {
                 acts.push(Action::Download(t.clone()));
@@ -917,12 +919,16 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
             ui.ctx().data_mut(|d| d.remove::<f32>(target_id));
         }
     }
+    if let Some(x) = super::mobile::carousel_hold(ui, sid) {
+        area = area.horizontal_scroll_offset(x);
+    }
     // Give the last page enough trailing room to land exactly on its first item.
     let content_width = (last_start as f32 * step + viewport).max(count as f32 * step - gap);
     let out = area.show(ui, |ui| ui.horizontal_top(|ui| {
         ui.set_min_width(content_width);
         add(ui)
     }).inner);
+    super::mobile::carousel_touch(ui, sid, out.inner_rect, out.state.clamped_offset().x);
     ui.ctx().data_mut(|d| d.insert_temp(viewport_id, out.inner_rect.width()));
     (out.inner, reached_end)
 }

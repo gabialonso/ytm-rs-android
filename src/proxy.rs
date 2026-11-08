@@ -31,7 +31,7 @@ pub enum Setting {
 impl Setting {
     pub fn label(&self) -> &'static str {
         match self {
-            Setting::System => "Use Windows settings",
+            Setting::System => if cfg!(target_os = "android") { "Use system settings" } else { "Use Windows settings" },
             Setting::Off => "No proxy",
             Setting::Custom(_) => "Custom",
         }

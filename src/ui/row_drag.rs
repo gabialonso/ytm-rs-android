@@ -49,7 +49,9 @@ pub struct Rows {
 /// stay on top and clicks still reach them; only a real drag lands here. Touch is left
 /// alone, where dragging scrolls.
 pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Track) {
-    if !ui.input(|input| input.any_touches()) {
+    // A phone is all touch: egui finds what a press grabs from the frame before it, which
+    // had no touch yet, so a grip there would take the drag from the scrolling.
+    if !ui.input(|input| input.any_touches()) && !super::mobile::phone(ui.ctx()) {
         let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_height(ui)));
         // egui counts a drag-only widget as dragged from the press itself: wait until the
         // pointer has moved too far (or held too long) for a click. A drag some other list

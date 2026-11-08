@@ -429,18 +429,20 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         if icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
             app.nav_back();
         }
-        if icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
+        // A phone has Back, and pulls nothing to refresh: just the box.
+        let phone = super::mobile::phone(ui.ctx());
+        if !phone && icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
             app.nav_forward();
         }
-        if refresh_button(ui).clicked() {
+        if !phone && refresh_button(ui).clicked() {
             app.refresh();
         }
-        ui.add_space(12.0);
+        ui.add_space(if phone { 4.0 } else { 12.0 });
 
         // Room for the account button, and the window buttons when they're over this row;
         // in a narrow window the box gives way rather than run under them.
         let reserve = 50.0 + super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0);
-        let narrowest = if super::titlebar::custom() { 120.0 } else { 240.0 };
+        let narrowest = if super::titlebar::custom() || phone { 120.0 } else { 240.0 };
         let width = (ui.available_width() - reserve).clamp(narrowest, 560.0);
         // Anywhere on the pill focuses the box, not just on the text area inside it.
         let (rect, field) = ui.allocate_exact_size(vec2(width, 42.0), Sense::click());
@@ -896,7 +898,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     if right_btn(ui, if app.np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, "Now playing", app.np_open) {
         app.actions.push(Action::OpenNowPlaying(!app.np_open));
     }
-    if right_btn(ui, icon::PICTURE_IN_PICTURE, "Mini player (Ctrl+M)", false) {
+    // Android: the window can't shrink to a mini player.
+    if !cfg!(target_os = "android") && right_btn(ui, icon::PICTURE_IN_PICTURE, "Mini player (Ctrl+M)", false) {
         app.actions.push(Action::Mini(true));
     }
     // In now playing the queue is its Up next panel; elsewhere, the side panel.

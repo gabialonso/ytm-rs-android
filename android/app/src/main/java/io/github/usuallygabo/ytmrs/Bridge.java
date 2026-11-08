@@ -19,6 +19,7 @@ public final class Bridge {
     private static WeakReference<Activity> activity = new WeakReference<>(null);
     private static final Handler main = new Handler(Looper.getMainLooper());
     private static TextInput textInput;
+    private static boolean visible;
 
     private Bridge() {}
 
@@ -30,6 +31,16 @@ public final class Bridge {
 
     static void detach(Activity a) {
         if (activity.get() == a) activity = new WeakReference<>(null);
+    }
+
+    /** The app's activity while it's on screen, else null. */
+    static Activity visibleActivity() {
+        return visible ? activity.get() : null;
+    }
+
+    static void setVisible(boolean v) {
+        visible = v;
+        onVisible(v);
     }
 
     static void setTextInput(TextInput t) {
@@ -71,6 +82,17 @@ public final class Bridge {
         main.post(() -> Player.get(app).setState(playing, moving, positionMs));
     }
 
+    /** Run the lyrics API's challenge page; the token comes back through onTurnstileResult. */
+    public static void startTurnstile(String url) {
+        main.post(() -> Turnstile.start(app, url));
+    }
+
+    /** Put text on the clipboard (Android says so itself). */
+    public static void copyText(String text) {
+        main.post(() -> app.getSystemService(android.content.ClipboardManager.class)
+                .setPrimaryClip(android.content.ClipData.newPlainText("ytm-rs", text)));
+    }
+
     /** Show the keyboard (an egui text field has focus) or hide it. */
     public static void setKeyboard(boolean show) {
         main.post(() -> {
@@ -91,9 +113,16 @@ public final class Bridge {
 
     static native void onVisible(boolean visible);
 
+    /** The system's Back, in the app; false when there's nowhere back to go. */
+    static native boolean onBack();
+
     static final int KEY_BACKSPACE = 0, KEY_ENTER = 1, KEY_DELETE = 2;
 
+    static native void onTurnstileResult(boolean ok, String value);
+
     static native void onText(String text);
+
+    static native void onKeyboardHidden();
 
     static native void onKey(int key);
 
