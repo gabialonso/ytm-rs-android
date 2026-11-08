@@ -21,7 +21,7 @@ public class PlaybackService extends Service {
     private static final String TAG = "ytm-rs";
     private static final String CHANNEL = "playback";
     private static final int ID = 1;
-    private static final String ACTION_PREVIOUS = "previous", ACTION_TOGGLE = "toggle",
+    private static final String ACTION_PREVIOUS = "previous", ACTION_PLAY = "play", ACTION_PAUSE = "pause",
             ACTION_NEXT = "next", ACTION_DISMISSED = "dismissed";
 
     private static PlaybackService running;
@@ -55,9 +55,12 @@ public class PlaybackService extends Service {
         String action = intent != null ? intent.getAction() : null;
         if (action != null) {
             switch (action) {
-                case ACTION_PREVIOUS: Bridge.onMediaCommand(Bridge.CMD_PREVIOUS, 0); break;
-                case ACTION_TOGGLE: Bridge.onMediaCommand(Bridge.CMD_TOGGLE, 0); break;
-                case ACTION_NEXT: Bridge.onMediaCommand(Bridge.CMD_NEXT, 0); break;
+                // Play and Pause, not a toggle: some systems (HyperOS) send a button press
+                // through both the session and this action, and two toggles undo each other.
+                case ACTION_PREVIOUS: Player.command("notification previous", Bridge.CMD_PREVIOUS, 0); break;
+                case ACTION_PLAY: Player.command("notification play", Bridge.CMD_PLAY, 0); break;
+                case ACTION_PAUSE: Player.command("notification pause", Bridge.CMD_PAUSE, 0); break;
+                case ACTION_NEXT: Player.command("notification next", Bridge.CMD_NEXT, 0); break;
                 case ACTION_DISMISSED:
                     if (!Player.get(this).playing) stopSelf();
                     return START_NOT_STICKY;
@@ -95,7 +98,7 @@ public class PlaybackService extends Service {
                 Icon.createWithResource(this, android.R.drawable.ic_media_previous), "Previous", action(ACTION_PREVIOUS, 1)).build();
         Notification.Action toggle = new Notification.Action.Builder(
                 Icon.createWithResource(this, p.playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play),
-                p.playing ? "Pause" : "Play", action(ACTION_TOGGLE, 2)).build();
+                p.playing ? "Pause" : "Play", p.playing ? action(ACTION_PAUSE, 2) : action(ACTION_PLAY, 5)).build();
         Notification.Action next = new Notification.Action.Builder(
                 Icon.createWithResource(this, android.R.drawable.ic_media_next), "Next", action(ACTION_NEXT, 3)).build();
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
@@ -115,6 +118,18 @@ public class PlaybackService extends Service {
                         .setShowActionsInCompactView(0, 1, 2));
         if (p.art != null) b.setLargeIcon(p.art);
         return b.build();
+    }
+
+    /** Swiped away from Recents. With this service running some systems (HyperOS) keep
+     *  the activity, so this ends the app here: the music stops with it. */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        Log.i(TAG, "task removed: closing");
+        Player.get(this).release();
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        getSystemService(NotificationManager.class).cancelAll();
+        stopSelf();
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     @Override

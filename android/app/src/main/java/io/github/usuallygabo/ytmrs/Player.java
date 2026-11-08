@@ -63,12 +63,12 @@ final class Player {
         audio = c.getSystemService(AudioManager.class);
         session = new MediaSession(c, "ytm-rs");
         session.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { Bridge.onMediaCommand(Bridge.CMD_PLAY, 0); }
-            @Override public void onPause() { Bridge.onMediaCommand(Bridge.CMD_PAUSE, 0); }
-            @Override public void onSkipToNext() { Bridge.onMediaCommand(Bridge.CMD_NEXT, 0); }
-            @Override public void onSkipToPrevious() { Bridge.onMediaCommand(Bridge.CMD_PREVIOUS, 0); }
-            @Override public void onStop() { Bridge.onMediaCommand(Bridge.CMD_PAUSE, 0); }
-            @Override public void onSeekTo(long pos) { Bridge.onMediaCommand(Bridge.CMD_SEEK, pos); }
+            @Override public void onPlay() { command("session play", Bridge.CMD_PLAY, 0); }
+            @Override public void onPause() { command("session pause", Bridge.CMD_PAUSE, 0); }
+            @Override public void onSkipToNext() { command("session next", Bridge.CMD_NEXT, 0); }
+            @Override public void onSkipToPrevious() { command("session previous", Bridge.CMD_PREVIOUS, 0); }
+            @Override public void onStop() { command("session stop", Bridge.CMD_PAUSE, 0); }
+            @Override public void onSeekTo(long pos) { command("session seek", Bridge.CMD_SEEK, pos); }
         });
         Intent open = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         session.setSessionActivity(PendingIntent.getActivity(c, 0, open, PendingIntent.FLAG_IMMUTABLE));
@@ -87,6 +87,12 @@ final class Player {
         wifi = c.getSystemService(WifiManager.class).createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "ytm-rs:playback");
         wifi.setReferenceCounted(false);
         publishState();
+    }
+
+    /** A button from outside the app; logged, to tell where an unexpected one came from. */
+    static void command(String from, int cmd, long arg) {
+        Log.i(TAG, "media button: " + from);
+        Bridge.onMediaCommand(cmd, arg);
     }
 
     void setTrack(String title, String artist, String album, String cover, long durationMs) {
@@ -114,6 +120,7 @@ final class Player {
         this.positionMs = positionMs;
         publishState();
         if (changed) {
+            Log.i(TAG, "player: " + (playing ? "playing" : "paused") + " at " + positionMs + " ms");
             if (playing) {
                 resumeOnGain = false;
                 if (!hasFocus) hasFocus = audio.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
@@ -137,21 +144,21 @@ final class Player {
     private void onFocusChange(int change) {
         switch (change) {
             case AudioManager.AUDIOFOCUS_GAIN:
-                if (resumeOnGain && !playing) Bridge.onMediaCommand(Bridge.CMD_PLAY, 0);
+                if (resumeOnGain && !playing) command("focus regained", Bridge.CMD_PLAY, 0);
                 resumeOnGain = false;
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 // A call, a navigation prompt: pause, and play on when it's over.
                 if (playing) {
                     resumeOnGain = true;
-                    Bridge.onMediaCommand(Bridge.CMD_PAUSE, 0);
+                    command("focus lost for a moment", Bridge.CMD_PAUSE, 0);
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 // Another player started.
                 hasFocus = false;
                 resumeOnGain = false;
-                if (playing) Bridge.onMediaCommand(Bridge.CMD_PAUSE, 0);
+                if (playing) command("focus lost", Bridge.CMD_PAUSE, 0);
                 break;
             default:
                 // Ducking: the system lowers the volume by itself.
@@ -162,7 +169,7 @@ final class Player {
     /** Headphones unplugged or Bluetooth gone: pause instead of playing out loud. */
     private final BroadcastReceiver noisy = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            if (playing) Bridge.onMediaCommand(Bridge.CMD_PAUSE, 0);
+            if (playing) command("headphones unplugged", Bridge.CMD_PAUSE, 0);
         }
     };
 
