@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.usuallygabo.ytmrs'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'io.github.usuallygabo.ytmrs'
+        minSdk 33
+        targetSdk 36
+        versionCode 1
+        versionName '0.2.34-android'
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // A pilot installed with adb: the debug key signs it too.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

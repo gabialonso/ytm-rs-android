@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Build the APK: the Rust library for each ABI, then the Java side with Gradle.
+#
+#   android/build.sh [debug|release] [--install]
+#
+# debug: the emulator (x86_64) and the phone (arm64), quick Rust build.
+# release: optimized Rust (fat LTO, slow to build), for battery and speed on the phone.
+# --install: adb install the APK on the connected device or emulator.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+[[ -f "$HOME/.local/opt/android-env.sh" ]] && source "$HOME/.local/opt/android-env.sh"
+
+profile="${1:-debug}"
+install=false
+[[ "${2:-}" == "--install" || "${1:-}" == "--install" ]] && install=true
+[[ "$profile" == "--install" ]] && profile=debug
+
+cargo_flags=()
+case "$profile" in
+    debug) ;;
+    release) cargo_flags+=(--release) ;;
+    *) echo "usage: $0 [debug|release] [--install]" >&2; exit 2 ;;
+esac
+
+cd "$here/.."
+cargo ndk -t arm64-v8a -t x86_64 -P 33 -o "$here/app/src/main/jniLibs" build --lib "${cargo_flags[@]}"
+# Debug info would make the APK over a gigabyte; the symbols stay for readable crash logs.
+strip="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+"$strip" --strip-debug "$here"/app/src/main/jniLibs/*/libytm_rs.so
+
+cd "$here"
+apk="$here/app/build/outputs/apk/$profile/app-$profile.apk"
+# Packaged incrementally over an old APK, the file keeps the old libraries' size.
+rm -f "$apk"
+./gradlew --quiet "assemble${profile^}"
+echo "APK: $apk ($(du -h "$apk" | cut -f1))"
+
+if $install; then
+    adb install -r "$apk"
+fi
