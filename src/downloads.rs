@@ -73,7 +73,12 @@ pub fn set_folder(folder: PathBuf) {
 pub fn pick_folder(ctx: &egui::Context) {
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        if let Some(dir) = rfd::FileDialog::new().set_title("Download folder").set_directory(folder()).pick_folder() {
+        // Android: no picker yet (downloads are out of the port's scope).
+        #[cfg(target_os = "android")]
+        let picked: Option<PathBuf> = None;
+        #[cfg(not(target_os = "android"))]
+        let picked = rfd::FileDialog::new().set_title("Download folder").set_directory(folder()).pick_folder();
+        if let Some(dir) = picked {
             set_folder(dir);
             ctx.request_repaint();
         }

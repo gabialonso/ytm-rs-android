@@ -11,6 +11,10 @@ impl App {
     pub(super) fn pick_uploads(&self, ctx: &egui::Context) {
         let (slot, ctx) = (self.picked_uploads.clone(), ctx.clone());
         std::thread::spawn(move || {
+            // Android: no picker yet (uploads are out of the port's scope).
+            #[cfg(target_os = "android")]
+            let files: Option<Vec<std::path::PathBuf>> = None;
+            #[cfg(not(target_os = "android"))]
             let files = rfd::FileDialog::new().set_title("Upload music").add_filter("Audio", UPLOAD_EXTS).pick_files();
             if let Some(files) = files {
                 *slot.lock().unwrap() = Some(files);

@@ -12,8 +12,7 @@ base64 = "0.22.1"
 bytes = "1.12.1"
 crossbeam-channel = "0.5.17"
 directories = "6.0.0"
-discord-rich-presence = "1.1.0"
-eframe = { version = "0.37", default-features = false, features = ["glow", "wgpu_no_default_features", "default_fonts", "system_fonts", "links", "clipboard", "accesskit", "persistence", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "wgpu_no_default_features", "default_fonts", "system_fonts", "links", "clipboard", "persistence"] }
 egui = { version = "0.37.0", features = ["monochrome_emoji_fonts"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 egui_extras = { version = "0.37.0", default-features = false, features = ["image"] }
@@ -23,34 +22,56 @@ localzone = "0.3.1"
 log = "0.4.34"
 memmap2 = "0.9.11"
 raw-window-handle = "0.6"
-reqwest = { version = "0.12", default-features = false, features = ["default-tls", "gzip", "json", "socks"] }
+reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "socks"] }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4"] }
 rquickjs = "0.14.0"
 roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 skrifa = "0.44.0"
-# Music videos: YouTube's H.264, decoded on the CPU. Built from source; faster with nasm installed.
-openh264 = "0.8"
 sha1 = "0.10.7"
 sha2 = "0.10.9"
 hmac = "0.12.1"
 serde_json = "1.0.151"
-souvlaki = "0.8.3"
-tao = "0.37.1"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
-wry = "0.57.0"
-rfd = "0.17.2"
-tray-icon = "0.26.1"
 url = "2.5.8"
 # The opt-in renderer: Vulkan, Metal on macOS (renderer.rs).
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal"] }
-tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "native-tls"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect"] }
 mp4ameta = "0.13.0"
 md-5 = "0.10"
 unicode-normalization = "0.1.26"
 symphonia = { version = "0.5.5", default-features = false, features = ["mkv"] }
 rusty-opus = "1.0.2"
 unicode-bidi = "0.3"
+
+# Everything a desktop build has and the Android port leaves out (see HANDOFF.md):
+# webview sign-in, tray, OS media controls, file dialogs, Discord, video.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "wayland", "x11"] }
+reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["native-tls"] }
+discord-rich-presence = "1.1.0"
+souvlaki = "0.8.3"
+tao = "0.37.1"
+wry = "0.57.0"
+rfd = "0.17.2"
+tray-icon = "0.26.1"
+# Music videos: YouTube's H.264, decoded on the CPU. Built from source; faster with nasm installed.
+openh264 = "0.8"
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["android-native-activity"] }
+# rustls: no OpenSSL to cross-build for the NDK.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["rustls-tls-webpki-roots"] }
+jni = "0.21.1"
+# The same winit eframe uses, for its `AndroidApp`.
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+ndk-context = "0.1.1"
+android_logger = "0.15"
+# rquickjs ships no prebuilt bindings for Android: generate them (needs LIBCLANG_PATH,
+# see android/README.md).
+rquickjs = { version = "0.14.0", features = ["bindgen"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.
@@ -82,6 +103,10 @@ panic = "unwind"
 # Keep debug builds usable: optimize dependencies (decoders, egui) even in dev.
 [profile.dev.package."*"]
 opt-level = 2
+
+[lib]
+# Android loads the app as libytm_rs.so; on desktop the library is empty (src/lib.rs).
+crate-type = ["cdylib"]
 
 [dev-dependencies]
 egui_system_font_provider = "0.37.0"

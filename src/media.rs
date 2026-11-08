@@ -7,7 +7,8 @@ mod thumbbar;
 use std::sync::Arc;
 
 use crossbeam_channel::Sender;
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
+pub use souvlaki::MediaControlEvent;
+use souvlaki::{MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 
 pub struct Media {
     controls: MediaControls,

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use souvlaki::MediaControlEvent;
+use crate::media::MediaControlEvent;
 
 use crate::audio::{AudioCmd, AudioEvent};
 use crate::backend::{Req, Resp};
@@ -58,6 +58,9 @@ impl App {
                 MediaControlEvent::Toggle => self.toggle(),
                 MediaControlEvent::Next => self.next(),
                 MediaControlEvent::Previous => self.prev(),
+                // The lock screen's (or MPRIS's) progress bar.
+                MediaControlEvent::SetPosition(p) => self.seek_to(p.0),
+                #[allow(unreachable_patterns)] // Android has only these events.
                 _ => {}
             }
         }

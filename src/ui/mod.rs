@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use crossbeam_channel::Receiver;
 use egui::{Color32, Ui};
-use souvlaki::MediaControlEvent;
+use crate::media::MediaControlEvent;
 
 use crate::audio::{AudioEvent, AudioHandle};
 use crate::backend::{ArtistPage, Backend, Explore, Library, Req, Resp, SearchResults};
@@ -920,16 +920,11 @@ impl App {
 
 
 
-impl eframe::App for App {
-    /// With a window material, nothing under the pages but what they paint.
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if crate::backdrop::active() == crate::backdrop::Backdrop::None { Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32() } else { [0.0; 4] }
-    }
-
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        pace::frame(ctx);
-        self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
-        let now = ctx.input(|i| i.time);
+impl App {
+    /// Everything `logic` does each frame but pacing: the player bookkeeping, replies,
+    /// integrations. `now` is egui's clock. The Android build also runs it while the
+    /// app has no window (screen off), when eframe runs no frames.
+    pub fn tick(&mut self, ctx: &egui::Context, now: f64) {
         self.sync_look();
         self.pump(now);
         self.skip_segments(ctx, now);
@@ -1036,6 +1031,20 @@ impl eframe::App for App {
         } else if playing || self.buffering {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
+    }
+}
+
+impl eframe::App for App {
+    /// With a window material, nothing under the pages but what they paint.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if crate::backdrop::active() == crate::backdrop::Backdrop::None { Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32() } else { [0.0; 4] }
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        pace::frame(ctx);
+        self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
+        let now = ctx.input(|i| i.time);
+        self.tick(ctx, now);
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {

@@ -280,6 +280,7 @@ async fn relay_one(client: &mut TcpStream) -> anyhow::Result<()> {
 /// custom proxy, or none at all, needs saying. (Chromium takes no password here: an
 /// authenticated proxy asks for it in the window.) `unbound`: no device-bound sessions
 /// (see `login::run`).
+#[cfg(not(target_os = "android"))]
 pub fn webview(b: wry::WebViewBuilder<'_>, unbound: bool) -> wry::WebViewBuilder<'_> {
     #[cfg(windows)]
     {
