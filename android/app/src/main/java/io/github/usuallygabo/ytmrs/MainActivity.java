@@ -63,11 +63,14 @@ public class MainActivity extends NativeActivity {
     protected void onDestroy() {
         Bridge.detach(this);
         super.onDestroy();
-        // The app was closed (swiped away from Recents). The Rust side can't start over in
-        // this process (winit makes one event loop per process), so end it, player and all.
-        Player.get(this).release();
-        stopService(new Intent(this, PlaybackService.class));
-        getSystemService(NotificationManager.class).cancelAll();
-        android.os.Process.killProcess(android.os.Process.myPid());
+        if (isFinishing()) {
+            // The app was closed for good (swiped away from Recents, or Back with nowhere
+            // left to go). Stop playback in Rust before ending the process.
+            Bridge.onClosing();
+            Player.get(this).release();
+            stopService(new Intent(this, PlaybackService.class));
+            getSystemService(NotificationManager.class).cancelAll();
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
     }
 }

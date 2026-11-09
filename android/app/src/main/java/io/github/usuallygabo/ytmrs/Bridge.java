@@ -116,6 +116,9 @@ public final class Bridge {
     /** The system's Back, in the app; false when there's nowhere back to go. */
     static native boolean onBack();
 
+    /** Stop playback before the process is killed (swiped from Recents). */
+    static native void onClosing();
+
     static final int KEY_BACKSPACE = 0, KEY_ENTER = 1, KEY_DELETE = 2;
 
     static native void onTurnstileResult(boolean ok, String value);

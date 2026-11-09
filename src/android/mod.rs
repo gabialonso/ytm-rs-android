@@ -23,6 +23,8 @@ const BRIDGE: &str = "io.github.usuallygabo.ytmrs.Bridge";
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static CTX: OnceLock<egui::Context> = OnceLock::new();
 static APP: OnceLock<Arc<Mutex<crate::ui::App>>> = OnceLock::new();
+/// The audio handle, kept so `Bridge.onClosing` can stop playback before the process dies.
+static AUDIO: OnceLock<crate::audio::AudioHandle> = OnceLock::new();
 static BRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
 pub fn data_dir() -> PathBuf {
@@ -156,6 +158,8 @@ fn create(cc: &eframe::CreationContext) -> anyhow::Result<Box<dyn eframe::App>> 
 
     let (media_tx, media_rx) = unbounded();
     crate::media::set_status(audio.status.clone());
+    // Keep a handle so `Bridge.onClosing` can stop playback before the process dies.
+    let _ = AUDIO.set(audio.clone());
     let media = crate::media::Media::new(None, media_tx, wake);
 
     if let Some(gl) = &cc.gl {
@@ -220,6 +224,7 @@ impl eframe::App for Shell {
     }
 
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        stop_audio();
         self.app.lock().unwrap().on_exit(gl);
     }
 }
@@ -233,6 +238,24 @@ pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onBack(_env: JNIE
         c.request_repaint();
     }
     handled as jni::sys::jboolean
+}
+
+/// `Bridge.onClosing()`: stop playback before the process is killed (swiped from Recents,
+/// or the activity is destroyed for good).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onClosing(_env: JNIEnv, _class: JClass) {
+    if let Some(audio) = AUDIO.get() {
+        audio.send(crate::audio::AudioCmd::Stop);
+        log::info!("onClosing: audio stop sent");
+    }
+}
+
+/// Stop playback: called from `Bridge.onClosing` (Java) and from `Shell::on_exit` (Rust).
+pub fn stop_audio() {
+    if let Some(audio) = AUDIO.get() {
+        audio.send(crate::audio::AudioCmd::Stop);
+        log::info!("stop_audio: audio stop sent");
+    }
 }
 
 /// The safe area's margins in pixels (left, top, right, bottom), from `Bridge.onInsets`.
