@@ -1,4 +1,4 @@
-package io.github.usuallygabo.ytmrs;
+package io.github.gabialonso.ytmrs;
 
 import android.app.Activity;
 import android.content.Context;

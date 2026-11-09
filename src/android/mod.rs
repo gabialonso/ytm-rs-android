@@ -18,7 +18,7 @@ use jni::{JNIEnv, JavaVM};
 mod text;
 
 /// The Kotlin class every call goes to.
-const BRIDGE: &str = "io.github.usuallygabo.ytmrs.Bridge";
+const BRIDGE: &str = "io.github.gabialonso.ytmrs.Bridge";
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static CTX: OnceLock<egui::Context> = OnceLock::new();
@@ -260,7 +260,7 @@ impl eframe::App for Shell {
 
 /// `Bridge.onBack()`: the system's Back, in the app. False sends the app to the background.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onBack(_env: JNIEnv, _class: JClass) -> jni::sys::jboolean {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onBack(_env: JNIEnv, _class: JClass) -> jni::sys::jboolean {
     let Some(app) = APP.get() else { return 0 };
     let handled = app.lock().unwrap().phone_back();
     if let Some(c) = CTX.get() {
@@ -272,7 +272,7 @@ pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onBack(_env: JNIE
 /// `Bridge.onClosing()`: stop playback before the process is killed (swiped from Recents,
 /// or the activity is destroyed for good).
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onClosing(_env: JNIEnv, _class: JClass) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onClosing(_env: JNIEnv, _class: JClass) {
     if let Some(audio) = AUDIO.get() {
         audio.send(crate::audio::AudioCmd::Stop);
         log::info!("onClosing: audio stop sent");
@@ -291,7 +291,7 @@ pub fn stop_audio() {
 static INSETS: [std::sync::atomic::AtomicU32; 4] = [const { std::sync::atomic::AtomicU32::new(0) }; 4];
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onInsets(_env: JNIEnv, _class: JClass, left: jni::sys::jint, top: jni::sys::jint, right: jni::sys::jint, bottom: jni::sys::jint) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onInsets(_env: JNIEnv, _class: JClass, left: jni::sys::jint, top: jni::sys::jint, right: jni::sys::jint, bottom: jni::sys::jint) {
     for (slot, v) in INSETS.iter().zip([left, top, right, bottom]) {
         slot.store(v.max(0) as u32, Ordering::Relaxed);
     }
@@ -349,7 +349,7 @@ mod background {
 
     /// `Bridge.onVisible(visible)`, from the activity's onResume / onPause.
     #[unsafe(no_mangle)]
-    pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onVisible(_env: JNIEnv, _class: JClass, visible: jni::sys::jboolean) {
+    pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onVisible(_env: JNIEnv, _class: JClass, visible: jni::sys::jboolean) {
         VISIBLE.store(visible != 0, Ordering::Relaxed);
         wake();
         if visible != 0 {

@@ -82,7 +82,7 @@ impl Media {
 
 /// `Bridge.onMediaCommand(cmd, arg)`: a button on the lock screen, notification or a headset.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onMediaCommand(_env: JNIEnv, _class: JClass, cmd: jint, arg: jlong) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onMediaCommand(_env: JNIEnv, _class: JClass, cmd: jint, arg: jlong) {
     let ev = match cmd {
         0 => MediaControlEvent::Play,
         1 => MediaControlEvent::Pause,

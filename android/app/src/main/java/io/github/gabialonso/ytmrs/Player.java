@@ -1,4 +1,4 @@
-package io.github.usuallygabo.ytmrs;
+package io.github.gabialonso.ytmrs;
 
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -89,9 +89,8 @@ final class Player {
         publishState();
     }
 
-    /** A button from outside the app; logged, to tell where an unexpected one came from. */
+    /** A button from outside the app (`from` names where, for debugging). */
     static void command(String from, int cmd, long arg) {
-        Log.i(TAG, "media button: " + from);
         Bridge.onMediaCommand(cmd, arg);
     }
 
@@ -120,7 +119,6 @@ final class Player {
         this.positionMs = positionMs;
         publishState();
         if (changed) {
-            Log.i(TAG, "player: " + (playing ? "playing" : "paused") + " at " + positionMs + " ms");
             if (playing) {
                 resumeOnGain = false;
                 if (!hasFocus) hasFocus = audio.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;

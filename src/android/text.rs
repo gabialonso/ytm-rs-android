@@ -45,7 +45,7 @@ pub fn follow_focus(wants: bool) {
 
 /// `Bridge.onText(text)`: text the keyboard committed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onText(mut env: JNIEnv, _class: JClass, text: JString) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onText(mut env: JNIEnv, _class: JClass, text: JString) {
     let text = rust_string(&mut env, &text);
     // A newline is the keyboard's Enter.
     let mut events = Vec::new();
@@ -62,7 +62,7 @@ pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onText(mut env: J
 
 /// `Bridge.onKey(code)`: 0 = Backspace, 1 = Enter (the keyboard's action button), 2 = Delete.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onKey(_env: JNIEnv, _class: JClass, code: jint) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onKey(_env: JNIEnv, _class: JClass, code: jint) {
     match code {
         0 => push(key(egui::Key::Backspace)),
         1 => push(key(egui::Key::Enter)),
@@ -74,7 +74,7 @@ pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onKey(_env: JNIEn
 /// `Bridge.onKeyboardHidden()`: the keyboard went away by itself (Back, its own button):
 /// the text field gives up focus, so tapping it again brings the keyboard back.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onKeyboardHidden(_env: JNIEnv, _class: JClass) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onKeyboardHidden(_env: JNIEnv, _class: JClass) {
     *SHOWN.lock().unwrap() = false;
     if let Some(c) = CTX.get() {
         c.memory_mut(|m| {

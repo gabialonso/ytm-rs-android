@@ -1,4 +1,4 @@
-package io.github.usuallygabo.ytmrs;
+package io.github.gabialonso.ytmrs;
 
 import android.content.Context;
 import android.text.InputType;

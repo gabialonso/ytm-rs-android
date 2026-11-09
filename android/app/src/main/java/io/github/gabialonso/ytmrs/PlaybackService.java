@@ -1,4 +1,4 @@
-package io.github.usuallygabo.ytmrs;
+package io.github.gabialonso.ytmrs;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -124,7 +124,6 @@ public class PlaybackService extends Service {
      *  the activity, so this ends the app here: the music stops with it. */
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        Log.i(TAG, "task removed: closing");
         Player.get(this).release();
         stopForeground(STOP_FOREGROUND_REMOVE);
         getSystemService(NotificationManager.class).cancelAll();

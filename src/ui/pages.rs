@@ -1907,7 +1907,7 @@ fn settings_shortcuts(ui: &mut Ui) {
 /// Settings › About.
 fn settings_about(ui: &mut Ui) {
     settings_section(ui, "About", None, None, |ui| {
-        setting_row(ui, &format!("ytm-rs {}", env!("CARGO_PKG_VERSION")), Some("A fast, native YouTube Music client."), |_| {});
+        setting_row(ui, &super::mobile::about_title(), Some("A fast, native YouTube Music client."), |_| {});
         for (title, desc) in [
             ("Lyrics", "Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics TTML"),
             ("Themes", "Adapted from the Better Lyrics theme store; each card credits its creators"),

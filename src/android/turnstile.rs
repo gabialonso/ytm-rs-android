@@ -36,7 +36,7 @@ pub fn obtain(_profile_dir: PathBuf) -> anyhow::Result<String> {
 
 /// `Bridge.onTurnstileResult(ok, value)`: the token, or why there's none.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onTurnstileResult(mut env: JNIEnv, _class: JClass, ok: jboolean, value: JString) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onTurnstileResult(mut env: JNIEnv, _class: JClass, ok: jboolean, value: JString) {
     let value = rust_string(&mut env, &value);
     if let Some(tx) = PENDING.lock().unwrap().take() {
         let _ = tx.send(if ok != 0 && !value.is_empty() { Ok(value) } else { Err(value) });

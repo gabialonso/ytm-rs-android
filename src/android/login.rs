@@ -54,7 +54,7 @@ pub fn forget(profile_dir: &std::path::Path) {
 /// `Bridge.onLoginResult(status, value)`: 0 = signed in (`value` is the Cookie header),
 /// 1 = cancelled, 2 = failed (`value` says why).
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onLoginResult(mut env: JNIEnv, _class: JClass, status: jint, value: JString) {
+pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onLoginResult(mut env: JNIEnv, _class: JClass, status: jint, value: JString) {
     let value = rust_string(&mut env, &value);
     let outcome = match status {
         0 => Outcome::Cookie(value),

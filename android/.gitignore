@@ -3,3 +3,5 @@ build/
 local.properties
 # Built by build.sh from the Rust crate.
 app/src/main/jniLibs/
+# The release key's location and passwords (the key itself lives outside the repo).
+keystore.properties

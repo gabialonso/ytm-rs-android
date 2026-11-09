@@ -2,26 +2,45 @@ plugins {
     id 'com.android.application'
 }
 
+// The app's version (android/version.properties) and, when present, the release key
+// (android/keystore.properties, kept out of git: storeFile, storePassword, keyAlias,
+// keyPassword). Without it, release builds are signed with the debug key.
+def version = new Properties()
+file('../version.properties').withInputStream { version.load(it) }
+def keystore = new Properties()
+def keystoreFile = file('../keystore.properties')
+if (keystoreFile.exists()) keystoreFile.withInputStream { keystore.load(it) }
+
 android {
-    namespace 'io.github.usuallygabo.ytmrs'
+    namespace 'io.github.gabialonso.ytmrs'
     compileSdk 36
 
     defaultConfig {
-        applicationId 'io.github.usuallygabo.ytmrs'
+        applicationId 'io.github.gabialonso.ytmrs'
         minSdk 33
         targetSdk 36
-        versionCode 1
-        versionName '0.2.34-android'
+        versionCode version['versionCode'] as int
+        versionName version['versionName']
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    signingConfigs {
+        if (keystoreFile.exists()) {
+            release {
+                storeFile file(keystore['storeFile'])
+                storePassword keystore['storePassword']
+                keyAlias keystore['keyAlias']
+                keyPassword keystore['keyPassword']
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            // A pilot installed with adb: the debug key signs it too.
-            signingConfig signingConfigs.debug
+            signingConfig keystoreFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 

@@ -411,6 +411,18 @@ pub(super) fn card_width(ui: &Ui, desktop: f32, gap: f32) -> f32 {
     if phone(ui.ctx()) { ((ui.available_width() - gap) / 2.0).floor().min(desktop + 40.0) } else { desktop }
 }
 
+/// Settings › About's first row: the app and its version. The Android app has its own
+/// (`android/version.properties`), on top of the ytm-rs version it's built on.
+pub(super) fn about_title() -> String {
+    let base = env!("CARGO_PKG_VERSION");
+    if !cfg!(target_os = "android") {
+        return format!("ytm-rs {base}");
+    }
+    let props = include_str!("../../android/version.properties");
+    let version = props.lines().find_map(|l| l.strip_prefix("versionName=")).unwrap_or("?").trim();
+    format!("ytm-rs for Android {version} (ytm-rs {base})")
+}
+
 /// Settings' dividers, on the phone: a `divider` waits for the next row that shows and is
 /// drawn above it, so hidden rows leave no stray lines and no section ends with one.
 const DIVIDER: &str = "mobile-divider-pending";
