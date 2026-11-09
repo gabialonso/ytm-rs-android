@@ -4,9 +4,11 @@
 #   android/build.sh [debug|release] [--install]
 #
 # debug: the emulator (x86_64) and the phone (arm64), quick Rust build.
-# release: optimized Rust (fat LTO, slow to build), for battery and speed on the phone.
+# release: optimized Rust (fat LTO, slow to build), for battery and speed on the phone,
+# with the dependencies that don't run every frame built for size (profile `android`).
 # --install: adb install the APK on the connected device or emulator.
-# ABIS="arm64-v8a" builds only the phone's (default: arm64-v8a and x86_64).
+# ABIS="arm64-v8a" builds only the phone's (default: arm64-v8a and x86_64 for debug,
+# arm64-v8a alone for release: phones are arm64, x86_64 is the emulator).
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -20,13 +22,16 @@ install=false
 cargo_flags=()
 case "$profile" in
     debug) ;;
-    release) cargo_flags+=(--release) ;;
+    # The `android` profile: `release`, with cold dependencies built for size (Cargo.toml).
+    release) cargo_flags+=(--profile android) ;;
     *) echo "usage: $0 [debug|release] [--install]" >&2; exit 2 ;;
 esac
 
 cd "$here/.."
 targets=()
-for abi in ${ABIS:-arm64-v8a x86_64}; do targets+=(-t "$abi"); done
+default_abis="arm64-v8a x86_64"
+[[ "$profile" == release ]] && default_abis="arm64-v8a"
+for abi in ${ABIS:-$default_abis}; do targets+=(-t "$abi"); done
 # Libraries from an earlier build for other ABIs would end up in the APK too.
 rm -rf "$here/app/src/main/jniLibs"
 cargo ndk "${targets[@]}" -P 33 -o "$here/app/src/main/jniLibs" build --lib "${cargo_flags[@]}"

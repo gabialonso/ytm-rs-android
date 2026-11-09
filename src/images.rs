@@ -18,7 +18,7 @@ const RETRY_AFTER: Duration = Duration::from_secs(30);
 /// once (the account picture, playlist covers, the home feed).
 const DISK_MAX_FILE: usize = 256 * 1024;
 /// The disk cache is trimmed to this, oldest first, at launch.
-const DISK_BUDGET: u64 = 64 * 1024 * 1024;
+const DISK_BUDGET: u64 = if cfg!(target_os = "android") { 16 } else { 64 } * 1024 * 1024;
 
 enum Entry {
     Pending,
@@ -38,7 +38,10 @@ pub struct HttpImages {
 
 impl HttpImages {
     pub fn new(backend: Backend) -> Self {
+        #[cfg(not(target_os = "android"))]
         let dir = backend.data_dir().join("thumbs");
+        #[cfg(target_os = "android")]
+        let dir = crate::android::cache_dir().join("thumbs");
         let _ = std::fs::create_dir_all(&dir);
         trim(&dir);
         Self { backend, cache: Default::default(), dir }
@@ -167,7 +170,7 @@ impl BytesLoader for HttpImages {
 }
 
 /// GPU memory the thumbnails may keep before the least recently drawn are dropped.
-const TEXTURE_BUDGET: usize = 64 * 1024 * 1024;
+const TEXTURE_BUDGET: usize = if cfg!(target_os = "android") { 24 } else { 64 } * 1024 * 1024;
 /// A big picture (now playing's cover, a banner: 3.5 MB at 960 px) not drawn for this
 /// long is dropped even under the budget: one per song played would otherwise pile up
 /// until it. It comes back from the disk cache when it's next shown.

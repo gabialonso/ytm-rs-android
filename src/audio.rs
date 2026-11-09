@@ -405,7 +405,12 @@ impl Output {
                 let _ = tx.send(AudioCmd::DeviceLost);
             }
         };
-        let sink = match DeviceSinkBuilder::from_device(device).and_then(|b| b.with_error_callback(on_error).open_sink_or_fallback()) {
+        let builder = DeviceSinkBuilder::from_device(device).map(|b| b.with_error_callback(on_error));
+        // A phone's audio thread wakes for every buffer: twice rodio's ~43 ms halves that,
+        // and music needs no low latency (the position allows for it, `latency_ms`).
+        #[cfg(target_os = "android")]
+        let builder = builder.map(|b| b.with_buffer_size(rodio::cpal::BufferSize::Fixed(4096)));
+        let sink = match builder.and_then(|b| b.open_sink_or_fallback()) {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("audio: couldn't open the output device: {e}");
@@ -441,6 +446,15 @@ impl Output {
         self.sink = Some(sink);
         self.device = id;
         true
+    }
+
+    /// Lets the device go while nothing plays: a phone's output stream keeps a thread
+    /// busy feeding it silence. `Start` and `Resume` open it again.
+    fn close_on_phone(&mut self) {
+        if cfg!(target_os = "android") {
+            self.sink = None;
+            self.device = None;
+        }
     }
 
     /// Whether the device to play through (the picked one if it's connected, else the
@@ -566,6 +580,7 @@ fn run(
         let _ = events.send(AudioEvent::Error("No audio output device".into()));
         wake();
     }
+    output.close_on_phone();
     let mut player = Player::connect_new(&output.mixer);
     player.set_volume(slider_gain(&status, volume));
     // The playing source's fade-out control (see `Meter`).
@@ -656,6 +671,7 @@ fn run(
                 log::debug!("audio: pause at {:?}", offset + player.get_pos());
                 player.pause();
                 fading.iter().for_each(|f| f.player.pause());
+                output.close_on_phone();
                 status.playing.store(false, Ordering::Relaxed);
                 // So the UI (and the system media controls it syncs) see it even when idle.
                 wake();

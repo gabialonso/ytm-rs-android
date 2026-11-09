@@ -1419,10 +1419,10 @@ impl EdgeFade {
             uv: a.uv + (b.uv - a.uv) * t,
             color: a.color.lerp_to_gamma(b.color, t),
         };
-        // The part of a polygon on one side of a horizontal line.
-        let clip = |poly: &[Vertex], y: f32, keep_below: bool| -> Vec<Vertex> {
+        // The part of a polygon on one side of a horizontal line, into `out`.
+        let clip = |poly: &[Vertex], y: f32, keep_below: bool, out: &mut Vec<Vertex>| {
+            out.clear();
             let inside = |v: &Vertex| if keep_below { v.pos.y >= y } else { v.pos.y <= y };
-            let mut out = Vec::with_capacity(poly.len() + 2);
             for i in 0..poly.len() {
                 let (a, b) = (&poly[i], &poly[(i + 1) % poly.len()]);
                 if inside(a) {
@@ -1432,9 +1432,13 @@ impl EdgeFade {
                     out.push(lerp(a, b, (y - a.pos.y) / (b.pos.y - a.pos.y)));
                 }
             }
-            out
         };
+        // Runs every frame over every line near an edge: no allocation per triangle.
+        let (clear_top, clear_bottom) = (r.top() + z, r.bottom() - z);
         let mut out = Mesh::with_texture(m.texture_id);
+        out.reserve_vertices(m.vertices.len());
+        out.reserve_triangles(m.indices.len() / 3);
+        let (mut ys, mut half, mut piece) = (Vec::with_capacity(cuts.len() + 2), Vec::with_capacity(8), Vec::with_capacity(8));
         for tri in m.indices.as_chunks::<3>().0 {
             let poly = [m.vertices[tri[0] as usize], m.vertices[tri[1] as usize], m.vertices[tri[2] as usize]];
             let lo = poly.iter().map(|v| v.pos.y).fold(f32::INFINITY, f32::min);
@@ -1442,11 +1446,20 @@ impl EdgeFade {
             if hi <= r.top() || lo >= r.bottom() {
                 continue;
             }
-            let mut ys: Vec<f32> = cuts.iter().copied().filter(|&y| y > lo && y < hi).collect();
-            ys.insert(0, lo.max(r.top()));
+            let base = out.vertices.len() as u32;
+            if lo >= clear_top && hi <= clear_bottom {
+                // Clear of both fades: as it is.
+                out.vertices.extend(poly);
+                out.indices.extend([base, base + 1, base + 2]);
+                continue;
+            }
+            ys.clear();
+            ys.push(lo.max(r.top()));
+            ys.extend(cuts.iter().copied().filter(|&y| y > lo && y < hi));
             ys.push(hi.min(r.bottom()));
             for w in ys.windows(2) {
-                let piece = clip(&clip(&poly, w[0], true), w[1], false);
+                clip(&poly, w[0], true, &mut half);
+                clip(&half, w[1], false, &mut piece);
                 if piece.len() < 3 {
                     continue;
                 }
@@ -1685,10 +1698,16 @@ fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Op
 /// Draw a glyph quad, alpha following the lit gradient: 1 left of `a`, 0 right of `b`
 /// (screen x), linear between, so the soft edge is exact and never a box.
 fn push_quad(mesh: &mut Mesh, r: Rect, uv: Rect, color: Color32, alpha: &dyn Fn(f32) -> f32, cuts: &[f32]) {
-    let mut xs = vec![r.left()];
-    xs.extend(cuts.iter().copied().filter(|&c| c > r.left() && c < r.right()));
-    xs.push(r.right());
-    for s in xs.windows(2) {
+    // Per glyph, every frame: on the stack (`lit_gradient` gives at most two cuts).
+    let mut xs = [0.0; 4];
+    let mut n = 0;
+    for x in std::iter::once(r.left()).chain(cuts.iter().copied().filter(|&c| c > r.left() && c < r.right())).chain(std::iter::once(r.right())) {
+        if n < xs.len() {
+            xs[n] = x;
+            n += 1;
+        }
+    }
+    for s in xs[..n].windows(2) {
         let (x0, x1) = (s[0], s[1]);
         if x1 - x0 <= 0.0 {
             continue;
@@ -1711,29 +1730,34 @@ fn push_quad(mesh: &mut Mesh, r: Rect, uv: Rect, color: Color32, alpha: &dyn Fn(
 /// The lit gradient over one glyph, in screen x: (alpha function, cut points).
 /// Letter mode follows the per-letter masks (index space); otherwise the word box.
 /// `rtl`: the word reads right to left, so it's lit from the right.
-fn lit_gradient(q: &Rect, letter: usize, letters: usize, word: Rect, look: &WordLook, by_letter: bool, rtl: bool) -> (Box<dyn Fn(f32) -> f32>, Vec<f32>) {
+/// Per glyph, every frame: one closure type and no allocation.
+fn lit_gradient(q: &Rect, letter: usize, letters: usize, word: Rect, look: &WordLook, by_letter: bool, rtl: bool) -> (impl Fn(f32) -> f32, [f32; 2]) {
     let (s, e) = (look.start, look.end);
-    if rtl && !by_letter {
-        let xs = word.right() - word.width() * s;
-        let xe = word.right() - word.width() * e - 1.0;
-        let f = move |x: f32| if x >= xs { 1.0 } else if x <= xe { 0.0 } else { 1.0 - (xs - x) / (xs - xe) };
-        return (Box::new(f), vec![xe, xs]);
-    }
-    if by_letter {
+    let from_right = rtl && !by_letter;
+    let (xs, xe) = if from_right {
+        (word.right() - word.width() * s, word.right() - word.width() * e - 1.0)
+    } else if by_letter {
         let n = letters.max(1) as f32;
         // In letter units across this glyph: X = letter + (x - left) / width.
         let (l, w) = (q.left(), q.width().max(1e-6));
         let i = letter as f32;
         let x_at = |v: f32| l + (v * n - i) * w; // where X/n == v
-        let (xs, xe) = (x_at(s), x_at(e) + 1.0);
-        let f = move |x: f32| if x <= xs { 1.0 } else if x >= xe { 0.0 } else { 1.0 - (x - xs) / (xe - xs) };
-        (Box::new(f), vec![xs, xe])
+        (x_at(s), x_at(e) + 1.0)
     } else {
-        let xs = word.left() + word.width() * s;
-        let xe = word.left() + word.width() * e + 1.0;
-        let f = move |x: f32| if x <= xs { 1.0 } else if x >= xe { 0.0 } else { 1.0 - (x - xs) / (xe - xs) };
-        (Box::new(f), vec![xs, xe])
-    }
+        (word.left() + word.width() * s, word.left() + word.width() * e + 1.0)
+    };
+    let f = move |x: f32| {
+        if from_right {
+            if x >= xs { 1.0 } else if x <= xe { 0.0 } else { 1.0 - (xs - x) / (xs - xe) }
+        } else if x <= xs {
+            1.0
+        } else if x >= xe {
+            0.0
+        } else {
+            1.0 - (x - xs) / (xe - xs)
+        }
+    };
+    (f, if from_right { [xe, xs] } else { [xs, xe] })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1793,7 +1817,7 @@ fn paint_words(
         for q in &quads {
             let r = xf.rect(q.rect);
             let (alpha, cuts) = lit_gradient(&r, q.letter, q.letters, word_box, &look, w.letters, w.rtl);
-            push_quad(&mut m, r, q.uv, color, alpha.as_ref(), &cuts);
+            push_quad(&mut m, r, q.uv, color, &alpha, &cuts);
             screen_quads.push((r, q.uv, q.letter, q.letters, 1.0));
         }
         if look.glow > 0.05 && look.glow_alpha >= GLOW_INVISIBLE && !dev_off("glow") {

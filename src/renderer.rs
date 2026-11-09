@@ -48,17 +48,26 @@ pub fn api_name() -> &'static str {
     if cfg!(target_os = "macos") { "Metal" } else { "Vulkan" }
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn backends() -> wgpu::Backends {
     if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN }
 }
 
 /// eframe's wgpu settings: only [`backends`], so "Vulkan" never quietly means DX12 or GL.
+#[cfg(not(target_os = "android"))]
 pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     setup.instance_descriptor.backends = backends();
     eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(setup), ..Default::default() }
 }
 
+/// No wgpu in the Android build: it draws with OpenGL.
+#[cfg(target_os = "android")]
+fn available() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "android"))]
 fn available() -> bool {
     let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
     desc.backends = backends();

@@ -588,7 +588,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         app.actions.push(Action::Seek(s as f32));
     }
     if out.animating {
-        super::mobile::lyrics_frame(ui.ctx());
+        ui.ctx().request_repaint();
     }
     // The extension's `.autoscroll-resume-button` (YouTube Music's rem is 10 px): a frosted
     // pill under the top edge in the lyrics font at 600, 1.75rem; padding .5rem 1rem;

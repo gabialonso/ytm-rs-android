@@ -7,6 +7,12 @@
 // Desktop-only helpers in the shared modules go unused here.
 #![allow(dead_code, unused_imports)]
 
+/// Android's allocator (scudo) is hardened and slow at the many small allocations each
+/// egui frame makes: with the synced lyrics on screen, a third of the UI thread went to
+/// it, mostly to its locks.
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod android;
 
 mod art;

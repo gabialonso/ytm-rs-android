@@ -14,16 +14,31 @@ pub struct Variant {
     ico: &'static [u8],
 }
 
+/// An icon file's bytes. Android has its launcher icon and no window or tray to set
+/// one on, so it carries none.
+#[cfg(not(target_os = "android"))]
+macro_rules! ico {
+    ($path:expr) => {
+        include_bytes!($path)
+    };
+}
+#[cfg(target_os = "android")]
+macro_rules! ico {
+    ($path:expr) => {
+        &[]
+    };
+}
+
 macro_rules! variant {
     ($id:literal, $name:literal) => {
-        Variant { id: $id, name: $name, ico: include_bytes!(concat!("../assets/icon/variants/", $id, ".ico")) }
+        Variant { id: $id, name: $name, ico: ico!(concat!("../assets/icon/variants/", $id, ".ico")) }
     };
 }
 
 pub const CLASSIC: &str = "classic";
 
 pub static ALL: &[Variant] = &[
-    Variant { id: CLASSIC, name: "Classic", ico: include_bytes!("../assets/icon/icon.ico") },
+    Variant { id: CLASSIC, name: "Classic", ico: ico!("../assets/icon/icon.ico") },
     variant!("official", "YT Music"),
     variant!("smilering", "Smile ring"),
     variant!("gear", "Rust gear"),

@@ -32,6 +32,10 @@ fn theme_covers() {
         .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "jpg")).collect())
         .unwrap_or_default();
     entries.sort();
+    // Android has no theme picker (only the default look): no covers to carry.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android") {
+        entries.clear();
+    }
     let mut out = String::from("&[\n");
     for p in entries {
         let id = p.file_stem().unwrap().to_string_lossy();

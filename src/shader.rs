@@ -98,6 +98,7 @@ void main() {
 "#;
 
 /// [`VERTEX`] and [`FRAGMENT`] in WGSL, for wgpu; keep the two in step.
+#[cfg(not(target_os = "android"))]
 const WGSL: &str = r#"
 struct U {
   blend: f32,
@@ -208,6 +209,7 @@ struct Gl {
 const UNIFORMS: [&str; 9] = ["u_a", "u_b", "u_blend", "u_time", "u_intensity", "u_scale", "u_saturation", "u_dim", "u_resolution"];
 
 /// The wgpu side, kept in egui-wgpu's callback resources.
+#[cfg(not(target_os = "android"))]
 struct Wgpu {
     pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
@@ -222,10 +224,12 @@ pub struct Background {
     gl: Arc<Mutex<Option<Gl>>>,
     pending: Arc<Mutex<Option<Art>>>,
     /// Drawn through wgpu, whose state lives with the renderer (`gl` stays empty).
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     wgpu: bool,
 }
 
 impl Background {
+    #[cfg(not(target_os = "android"))]
     pub fn new_wgpu(rs: &eframe::egui_wgpu::RenderState) -> Self {
         let device = &rs.device;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("background"), source: wgpu::ShaderSource::Wgsl(WGSL.into()) });
@@ -381,6 +385,7 @@ impl Background {
     }
 
     pub fn paint(&self, painter: &egui::Painter, rect: egui::Rect, p: Params) {
+        #[cfg(not(target_os = "android"))]
         if self.wgpu {
             painter.add(eframe::egui_wgpu::Callback::new_paint_callback(rect, WgpuPaint { pending: self.pending.clone(), rect, p }));
             return;
@@ -433,12 +438,14 @@ impl Background {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 struct WgpuPaint {
     pending: Arc<Mutex<Option<Art>>>,
     rect: egui::Rect,
     p: Params,
 }
 
+#[cfg(not(target_os = "android"))]
 impl eframe::egui_wgpu::CallbackTrait for WgpuPaint {
     fn prepare(
         &self,
@@ -469,6 +476,7 @@ impl eframe::egui_wgpu::CallbackTrait for WgpuPaint {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn upload_wgpu(queue: &wgpu::Queue, tex: &wgpu::Texture, art: &Art) {
     queue.write_texture(
         wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },

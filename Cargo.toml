@@ -12,7 +12,7 @@ base64 = "0.22.1"
 bytes = "1.12.1"
 crossbeam-channel = "0.5.17"
 directories = "6.0.0"
-eframe = { version = "0.37", default-features = false, features = ["glow", "wgpu_no_default_features", "default_fonts", "system_fonts", "links", "clipboard", "persistence"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "system_fonts", "links", "clipboard", "persistence"] }
 egui = { version = "0.37.0", features = ["monochrome_emoji_fonts"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 egui_extras = { version = "0.37.0", default-features = false, features = ["image"] }
@@ -34,8 +34,6 @@ hmac = "0.12.1"
 serde_json = "1.0.151"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
 url = "2.5.8"
-# The opt-in renderer: Vulkan, Metal on macOS (renderer.rs).
-wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect"] }
 mp4ameta = "0.13.0"
 md-5 = "0.10"
@@ -47,7 +45,9 @@ unicode-bidi = "0.3"
 # Everything a desktop build has and the Android port leaves out (see HANDOFF.md):
 # webview sign-in, tray, OS media controls, file dialogs, Discord, video.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-eframe = { version = "0.37", default-features = false, features = ["accesskit", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "wayland", "x11", "wgpu_no_default_features"] }
+# The opt-in renderer: Vulkan, Metal on macOS (renderer.rs). Android draws with OpenGL only.
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal"] }
 reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["native-tls"] }
 discord-rich-presence = "1.1.0"
@@ -69,6 +69,8 @@ jni = "0.21.1"
 winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
 ndk-context = "0.1.1"
 android_logger = "0.15"
+# The allocator (lib.rs): Android's own is slow at egui's many small allocations.
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
 # rquickjs ships no prebuilt bindings for Android: generate them (needs LIBCLANG_PATH,
 # see android/README.md).
 rquickjs = { version = "0.14.0", features = ["bindgen"] }
@@ -99,6 +101,94 @@ strip = true
 # Unwind, not abort: a panic while handling one request (in a library or a parser)
 # must fail that request, not close the app.
 panic = "unwind"
+
+# The Android release (android/build.sh): a phone pays for every megabyte twice (the
+# download, and the install, since the library isn't compressed). Dependencies built for
+# size, except what runs every frame or every sample (drawing, text, audio decoding,
+# the download's TLS, cover decoding), and the app itself, built for speed.
+[profile.android]
+inherits = "release"
+
+[profile.android.package."*"]
+opt-level = "s"
+
+[profile.android.package.egui]
+opt-level = 3
+
+[profile.android.package.epaint]
+opt-level = 3
+
+[profile.android.package.emath]
+opt-level = 3
+
+[profile.android.package.ecolor]
+opt-level = 3
+
+[profile.android.package.eframe]
+opt-level = 3
+
+[profile.android.package.egui_glow]
+opt-level = 3
+
+[profile.android.package.egui-winit]
+opt-level = 3
+
+[profile.android.package.glow]
+opt-level = 3
+
+[profile.android.package.harfrust]
+opt-level = 3
+
+[profile.android.package.skrifa]
+opt-level = 3
+
+[profile.android.package.read-fonts]
+opt-level = 3
+
+[profile.android.package.vello_cpu]
+opt-level = 3
+
+[profile.android.package.rodio]
+opt-level = 3
+
+[profile.android.package.cpal]
+opt-level = 3
+
+[profile.android.package.symphonia-core]
+opt-level = 3
+
+[profile.android.package.symphonia-codec-aac]
+opt-level = 3
+
+[profile.android.package.symphonia-format-isomp4]
+opt-level = 3
+
+[profile.android.package.rusty-opus]
+opt-level = 3
+
+[profile.android.package.ring]
+opt-level = 3
+
+[profile.android.package.rustls]
+opt-level = 3
+
+[profile.android.package.zune-jpeg]
+opt-level = 3
+
+[profile.android.package.image-webp]
+opt-level = 3
+
+[profile.android.package.png]
+opt-level = 3
+
+[profile.android.package.fdeflate]
+opt-level = 3
+
+[profile.android.package.libmimalloc-sys]
+opt-level = 3
+
+[profile.android.package.mimalloc]
+opt-level = 3
 
 # Keep debug builds usable: optimize dependencies (decoders, egui) even in dev.
 [profile.dev.package."*"]

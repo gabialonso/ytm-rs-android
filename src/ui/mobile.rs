@@ -392,28 +392,19 @@ pub(super) fn column_width(ui: &Ui, desktop: f32) -> f32 {
 
 /// Frame pacing on a phone, in place of the desktop's (true when it's set): each frame
 /// lays the whole UI out again, the main cost on the battery. The seek bar and the mini
-/// player's line move a fraction of a point a second, so 4 fps reads as smooth; the
-/// playing row's bars get 30, and the synced lyrics ask for their own while they move.
+/// player's line move under 2 points a second, and the clock a second at a time, so 2 fps
+/// reads the same; the playing row's bars get 30, and the synced lyrics ask for their own
+/// (every refresh) while they move.
 pub(super) fn pace(app: &App, ctx: &egui::Context) -> bool {
     if !phone(ctx) || app.window_hidden {
         return false;
     }
     if app.playing() || app.buffering {
         let lyrics = app.np_open && app.np_tab == NpTab::Lyrics && !app.no_lyrics();
-        let ms = if lyrics || widgets::equalizer_shown(ctx) { 33 } else { 250 };
+        let ms = if lyrics || widgets::equalizer_shown(ctx) { 33 } else { 500 };
         ctx.request_repaint_after(std::time::Duration::from_millis(ms));
     }
     true
-}
-
-/// The synced lyrics are moving: the next frame. On a phone at most 60 a second, not
-/// one for each refresh of a 120 Hz screen.
-pub(super) fn lyrics_frame(ctx: &egui::Context) {
-    if phone(ctx) {
-        ctx.request_repaint_after(std::time::Duration::from_millis(15));
-    } else {
-        ctx.request_repaint();
-    }
 }
 
 pub(super) fn card_width(ui: &Ui, desktop: f32, gap: f32) -> f32 {

@@ -27,6 +27,13 @@ static APP: OnceLock<Arc<Mutex<crate::ui::App>>> = OnceLock::new();
 static AUDIO: OnceLock<crate::audio::AudioHandle> = OnceLock::new();
 static BRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
+/// The app's cache directory, next to its files: Android counts what's here as cache,
+/// and may clear it when storage runs low.
+pub fn cache_dir() -> PathBuf {
+    let files = data_dir();
+    files.parent().map_or_else(|| files.join("cache"), |p| p.join("cache"))
+}
+
 pub fn data_dir() -> PathBuf {
     DATA_DIR.get().cloned().expect("data dir is set in android_main")
 }
@@ -117,6 +124,8 @@ pub fn android_main(app: AndroidApp) {
         // SAFETY: no other thread is running yet.
         unsafe { std::env::set_var("YTM_LYR_OFF", "glow") };
     }
+    // Covers used to be kept with the app's data; they're cache now (images.rs).
+    let _ = std::fs::remove_dir_all(data_dir().join("thumbs"));
     crate::stream::init_dev_hooks();
     crate::proxy::init(&data_dir());
 
@@ -198,11 +207,21 @@ impl eframe::App for Shell {
     }
 
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Off screen (screen off, another app in front) eframe still runs frames for
+        // whatever asked for one, the lyrics above all, though nothing is shown: skip
+        // them, so nothing asks for more. The background thread keeps the player going,
+        // and `onVisible` asks for a frame on the way back.
+        if !background::visible() {
+            return;
+        }
         *self.clock.lock().unwrap() = (ctx.input(|i| i.time), Instant::now());
         self.app.lock().unwrap().logic(ctx, frame);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if !background::visible() {
+            return;
+        }
         self.app.lock().unwrap().ui(ui, frame);
         // egui asks for text input while a text field has focus.
         text::follow_focus(ui.ctx().output(|o| o.ime.is_some()));
@@ -222,6 +241,10 @@ impl eframe::App for Shell {
             raw.screen_rect = Some(egui::Rect::from_min_max(rect.min + egui::vec2(l, t), rect.max - egui::vec2(r, b)));
         }
         raw.events.extend(text::take());
+        // The glyph atlas is as wide as the GPU's biggest texture (16384 on many phones),
+        // and every row of it costs that width in memory twice (a copy in RAM, one on the
+        // GPU). Narrower, it grows a few rows taller instead.
+        raw.max_texture_side = Some(raw.max_texture_side.unwrap_or(4096).min(4096));
         self.app.lock().unwrap().raw_input_hook(ctx, raw);
     }
 
@@ -288,6 +311,10 @@ mod background {
     static VISIBLE: AtomicBool = AtomicBool::new(true);
     static SIGNAL: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
 
+    pub fn visible() -> bool {
+        VISIBLE.load(Ordering::Relaxed)
+    }
+
     pub fn wake() {
         *SIGNAL.0.lock().unwrap() = true;
         SIGNAL.1.notify_one();
@@ -325,5 +352,21 @@ mod background {
     pub extern "system" fn Java_io_github_usuallygabo_ytmrs_Bridge_onVisible(_env: JNIEnv, _class: JClass, visible: jni::sys::jboolean) {
         VISIBLE.store(visible != 0, Ordering::Relaxed);
         wake();
+        if visible != 0 {
+            // Frames were skipped while away: draw the current state.
+            if let Some(ctx) = CTX.get() {
+                ctx.request_repaint();
+            }
+        } else {
+            // Give the memory freed while on screen back to the system (scudo keeps it
+            // for reuse otherwise), now that the app may sit in the background for hours.
+            unsafe extern "C" {
+                /// Bionic's: the libc crate doesn't declare it for Android.
+                fn mallopt(param: libc::c_int, value: libc::c_int) -> libc::c_int;
+            }
+            const M_PURGE: libc::c_int = -101;
+            // SAFETY: a plain call into the allocator, safe from any thread.
+            unsafe { mallopt(M_PURGE, 0) };
+        }
     }
 }
