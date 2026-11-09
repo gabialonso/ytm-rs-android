@@ -928,7 +928,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
         ui.set_min_width(content_width);
         add(ui)
     }).inner);
-    super::mobile::carousel_touch(ui, out.id, out.state.unclamped_offset().x, step, count as f32 * step - gap, out.inner_rect.width());
+    reached_end |= super::mobile::carousel_touch(ui, out.id, out.state.unclamped_offset().x, step, count as f32 * step - gap, out.inner_rect.width());
     ui.ctx().data_mut(|d| d.insert_temp(viewport_id, out.inner_rect.width()));
     (out.inner, reached_end)
 }

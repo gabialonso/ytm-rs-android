@@ -204,6 +204,97 @@ struct Gl {
     /// Uniform locations, looked up once: u_a, u_b, u_blend, u_time, u_intensity,
     /// u_scale, u_saturation, u_dim, u_resolution.
     loc: [Option<glow::UniformLocation>; 9],
+    #[cfg(target_os = "android")]
+    still: Still,
+}
+
+/// A background that stopped moving (paused, no animation, the crossfade done), kept
+/// as drawn: on a phone the shader's noise over every pixel of the screen is most of
+/// what a frame costs the GPU, and the same picture is copied instead.
+#[cfg(target_os = "android")]
+#[derive(Default)]
+struct Still {
+    /// What the last whole-screen draw was: the uniforms, the art in use and the size.
+    last: Option<[u32; 9]>,
+    /// The copy, its size, and what it holds.
+    copy: Option<(glow::Framebuffer, glow::Texture, [i32; 2])>,
+    holds: Option<[u32; 9]>,
+    /// Bumped with each new art.
+    art: u32,
+}
+
+#[cfg(target_os = "android")]
+impl Still {
+    /// Draw the background through the copy, if it's the same as last frame's and the
+    /// whole of it shows. False: draw it directly.
+    unsafe fn paint(&mut self, gl: &glow::Context, key: [u32; 9], vp: egui::epaint::ViewportInPixels, full: bool, draw: impl Fn()) -> bool {
+        // Only whole-screen draws count: the pages' background, drawn under the bottom
+        // bar only while now playing covers them, is a few rows of pixels.
+        if !full {
+            return false;
+        }
+        let same = self.last == Some(key);
+        self.last = Some(key);
+        if !same {
+            return false;
+        }
+        unsafe {
+            let size = [vp.width_px, vp.height_px];
+            let target = |id: i32| std::num::NonZeroU32::new(id as u32).map(glow::NativeFramebuffer);
+            let (draw_fb, read_fb) = (target(gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING)), target(gl.get_parameter_i32(glow::READ_FRAMEBUFFER_BINDING)));
+            if self.copy.is_some_and(|c| c.2 != size) {
+                self.drop_copy(gl);
+            }
+            if self.copy.is_none() {
+                let (Ok(fb), Ok(tex)) = (gl.create_framebuffer(), gl.create_texture()) else { return false };
+                // The art stays bound where the shader samples it.
+                let art = std::num::NonZeroU32::new(gl.get_parameter_i32(glow::TEXTURE_BINDING_2D) as u32).map(glow::NativeTexture);
+                gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+                gl.tex_storage_2d(glow::TEXTURE_2D, 1, glow::RGBA8, size[0], size[1]);
+                gl.bind_texture(glow::TEXTURE_2D, art);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
+                gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(tex), 0);
+                let ok = gl.check_framebuffer_status(glow::FRAMEBUFFER) == glow::FRAMEBUFFER_COMPLETE;
+                gl.bind_framebuffer(glow::FRAMEBUFFER, draw_fb);
+                gl.bind_framebuffer(glow::READ_FRAMEBUFFER, read_fb);
+                self.copy = Some((fb, tex, size));
+                if !ok {
+                    self.drop_copy(gl);
+                    return false;
+                }
+            }
+            let (fb, ..) = self.copy.unwrap();
+            if self.holds != Some(key) {
+                // The same draw as on screen, into the copy: same size, same picture.
+                let scissor = gl.is_enabled(glow::SCISSOR_TEST);
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fb));
+                gl.viewport(0, 0, size[0], size[1]);
+                gl.disable(glow::SCISSOR_TEST);
+                draw();
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, draw_fb);
+                gl.viewport(vp.left_px, vp.from_bottom_px, size[0], size[1]);
+                if scissor {
+                    gl.enable(glow::SCISSOR_TEST);
+                }
+                self.holds = Some(key);
+            }
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(fb));
+            let (x, y) = (vp.left_px, vp.from_bottom_px);
+            gl.blit_framebuffer(0, 0, size[0], size[1], x, y, x + size[0], y + size[1], glow::COLOR_BUFFER_BIT, glow::NEAREST);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, read_fb);
+        }
+        true
+    }
+
+    unsafe fn drop_copy(&mut self, gl: &glow::Context) {
+        if let Some((fb, tex, _)) = self.copy.take() {
+            unsafe {
+                gl.delete_framebuffer(fb);
+                gl.delete_texture(tex);
+            }
+        }
+        self.holds = None;
+    }
 }
 
 const UNIFORMS: [&str; 9] = ["u_a", "u_b", "u_blend", "u_time", "u_intensity", "u_scale", "u_saturation", "u_dim", "u_resolution"];
@@ -366,7 +457,15 @@ impl Background {
             let tex = [mk()?, mk()?];
             let loc = UNIFORMS.map(|n| gl.get_uniform_location(program, n));
             let this = Self {
-                gl: Arc::new(Mutex::new(Some(Gl { program, vao, tex, cur: 0, loc }))),
+                gl: Arc::new(Mutex::new(Some(Gl {
+                    program,
+                    vao,
+                    tex,
+                    cur: 0,
+                    loc,
+                    #[cfg(target_os = "android")]
+                    still: Still::default(),
+                }))),
                 pending: Default::default(),
                 wgpu: false,
             };
@@ -400,6 +499,10 @@ impl Background {
                     // New art goes into the other slot; the app animates `blend` 0→1.
                     s.cur ^= 1;
                     upload(gl, s.tex[s.cur], &art);
+                    #[cfg(target_os = "android")]
+                    {
+                        s.still.art = s.still.art.wrapping_add(1);
+                    }
                 }
                 gl.use_program(Some(s.program));
                 gl.bind_vertex_array(Some(s.vao));
@@ -419,6 +522,16 @@ impl Background {
                 gl.uniform_1_f32(dim.as_ref(), p.dim);
                 let vp = info.viewport_in_pixels();
                 gl.uniform_2_f32(resolution.as_ref(), vp.width_px as f32, vp.height_px as f32);
+                #[cfg(target_os = "android")]
+                {
+                    let key = [p.blend, p.time, p.intensity, p.scale, p.saturation, p.dim].map(f32::to_bits);
+                    let key = [key[0], key[1], key[2], key[3], key[4], key[5], s.still.art, vp.width_px as u32, vp.height_px as u32];
+                    let clip = info.clip_rect_in_pixels();
+                    let full = clip.left_px <= vp.left_px && clip.from_bottom_px <= vp.from_bottom_px && clip.width_px >= vp.width_px && clip.height_px >= vp.height_px;
+                    if s.still.paint(gl, key, vp, full, || gl.draw_arrays(glow::TRIANGLES, 0, 3)) {
+                        return;
+                    }
+                }
                 gl.draw_arrays(glow::TRIANGLES, 0, 3);
             }
         });
@@ -430,6 +543,11 @@ impl Background {
             unsafe {
                 gl.delete_program(s.program);
                 gl.delete_vertex_array(s.vao);
+                #[cfg(target_os = "android")]
+                {
+                    let mut still = s.still;
+                    still.drop_copy(gl);
+                }
                 for t in s.tex {
                     gl.delete_texture(t);
                 }

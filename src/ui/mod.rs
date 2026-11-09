@@ -628,8 +628,9 @@ impl App {
             appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
             custom_accent: get("custom_accent").and_then(|v| crate::preset::hex(&v)),
             accent_controls: get("accent_controls").is_some_and(|v| v == "1"),
-            anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
-            reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
+            // Android: a still background (both settings are hidden there).
+            anim_bg: !cfg!(target_os = "android") && get("anim_bg").is_none_or(|v| v == "1"),
+            reactive_bg: !cfg!(target_os = "android") && get("reactive_bg").is_none_or(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
             handoff: false,

@@ -411,6 +411,30 @@ pub(super) fn card_width(ui: &Ui, desktop: f32, gap: f32) -> f32 {
     if phone(ui.ctx()) { ((ui.available_width() - gap) / 2.0).floor().min(desktop + 40.0) } else { desktop }
 }
 
+/// Settings' dividers, on the phone: a `divider` waits for the next row that shows and is
+/// drawn above it, so hidden rows leave no stray lines and no section ends with one.
+const DIVIDER: &str = "mobile-divider-pending";
+
+/// `pages::divider`: true when it's left for the next row to draw.
+pub(super) fn divider_defer(ui: &Ui) -> bool {
+    phone(ui.ctx()) && {
+        ui.data_mut(|d| d.insert_temp(egui::Id::unique(DIVIDER), true));
+        true
+    }
+}
+
+/// A new section: a divider left over from the one before isn't drawn.
+pub(super) fn divider_reset(ui: &Ui) {
+    if phone(ui.ctx()) {
+        ui.data_mut(|d| d.insert_temp(egui::Id::unique(DIVIDER), false));
+    }
+}
+
+/// A row is shown: whether a divider is waiting to go above it.
+pub(super) fn divider_due(ui: &Ui) -> bool {
+    phone(ui.ctx()) && ui.data_mut(|d| std::mem::take(d.get_temp_mut_or_default::<bool>(egui::Id::unique(DIVIDER))))
+}
+
 /// Settings (sections and rows, by title) that do nothing in the Android build: the
 /// window, tray and taskbar, updates, files, Discord and the like, video, and themes.
 pub(super) fn hidden_setting(title: &str) -> bool {
@@ -560,10 +584,11 @@ pub(super) fn carousel_hold(ui: &mut Ui, area: egui::Id) -> Option<f32> {
 /// `step` apart (0: no cards to settle on), its last one ending at `end`, `view` wide. egui gives the whole drag to the innermost
 /// scroll area, which here only moves sideways; once a swipe that landed on the carousel
 /// goes up or down, the page takes the drag over, with its own glide when the finger
-/// lets go. A sideways one ends on a whole card.
-pub(super) fn carousel_touch(ui: &Ui, area: egui::Id, offset: f32, step: f32, end: f32, view: f32) {
+/// lets go. A sideways one ends on a whole card. True on the frame a swipe lets go
+/// headed for the last card: the shelf can load more (Quick picks' `>` does on desktop).
+pub(super) fn carousel_touch(ui: &Ui, area: egui::Id, offset: f32, step: f32, end: f32, view: f32) -> bool {
     if !phone(ui.ctx()) {
-        return;
+        return false;
     }
     let ctx = ui.ctx();
     let key = area.with("swipe");
@@ -579,9 +604,9 @@ pub(super) fn carousel_touch(ui: &Ui, area: egui::Id, offset: f32, step: f32, en
             set(Swipe::Undecided(offset + ctx.input(|i| i.pointer.delta().x)));
         }
         Some(Swipe::Undecided(x)) if down => {
-            let Some(moved) = ctx.input(|i| Some(i.pointer.latest_pos()? - i.pointer.press_origin()?)) else { return };
+            let Some(moved) = ctx.input(|i| Some(i.pointer.latest_pos()? - i.pointer.press_origin()?)) else { return false };
             if moved.length() < SLOP {
-                return;
+                return false;
             }
             match ctx.data(|d| d.get_temp::<egui::Id>(page_drag_key())) {
                 // Leaning towards up and down: a page scroll that crosses a carousel stays one.
@@ -599,11 +624,13 @@ pub(super) fn carousel_touch(ui: &Ui, area: egui::Id, offset: f32, step: f32, en
             let max = (end - view).max(0.0);
             let to = if step > 0.0 { ((offset + throw) / step).round() * step } else { offset + throw };
             set(Swipe::Settle(offset, to.clamp(0.0, max), now));
+            return max > 0.0 && to >= max - 0.5;
         }
         Some(Swipe::Settle(_, _, since)) if now - since < SETTLE => ctx.request_repaint(),
         Some(Swipe::Undecided(_) | Swipe::Page(_) | Swipe::Settle(..)) if !down => ctx.data_mut(|d| d.remove::<Swipe>(key)),
         _ => {}
     }
+    false
 }
 
 /// A row of chips: wrapped onto more lines on a wider screen; on a phone, one line that

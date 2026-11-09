@@ -275,6 +275,9 @@ impl Cfg {
 struct Word {
     text: String,
     font: FontId,
+    /// `text` laid out in `font`, kept with the layout: drawing a word every frame
+    /// doesn't look it up in the fonts' cache (a lock, a hash and a copy of the text).
+    galley: Arc<Galley>,
     start: f64,
     dur: f64,
     /// Zero-duration (line-synced) word: fades in instead of sweeping.
@@ -303,7 +306,8 @@ struct Group {
 #[derive(Clone)]
 enum DecoBody {
     Timed { words: Vec<Word>, groups: Vec<Group> },
-    Text(String, FontId),
+    /// The text, its font, and the text laid out as it's drawn (wrapped at the box).
+    Text(String, FontId, Arc<Galley>),
 }
 
 #[derive(Clone)]
@@ -330,8 +334,8 @@ struct Block {
     words: Vec<Word>,
     groups: Vec<Group>,
     decos: Vec<Deco>,
-    /// Songwriter credits text.
-    credits: Option<(String, FontId)>,
+    /// Songwriter credits, laid out.
+    credits: Option<Arc<Galley>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -478,8 +482,8 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
                 let long = text.chars().count() > LONG_GROUP_CHARS;
                 let rtl_group = crate::bidi::has_rtl(&text);
                 let letters = !joining_script(&text) && !rtl_group;
-                let sizes: Vec<Vec2> = toks.iter().map(|t| text_size(fonts, &t.text, font)).collect();
-                let w: f32 = sizes.iter().map(|s| s.x).sum();
+                let galleys: Vec<Arc<Galley>> = toks.iter().map(|t| fonts.layout_no_wrap(t.text.clone(), font.clone(), Color32::WHITE)).collect();
+                let w: f32 = galleys.iter().map(|g| g.size().x).sum();
                 let sp = if pending_space { space_w } else { 0.0 };
                 pending_space = false;
                 // A group that can't fit even on a row of its own breaks between its parts
@@ -494,7 +498,8 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
                 }
                 let gi = groups.len();
                 let first = words.len();
-                for (t, size) in toks.iter().zip(sizes) {
+                for (t, galley) in toks.iter().zip(galleys) {
+                    let size = galley.size();
                     if breakable && x > 0.0 && x + size.x > max_w {
                         row += 1;
                         x = 0.0;
@@ -503,6 +508,7 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
                     words.push(Word {
                         text: t.text.clone(),
                         font: font.clone(),
+                        galley,
                         start: t.start,
                         dur: t.dur,
                         line_synced: t.dur <= 0.0,
@@ -655,7 +661,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
             Roman::Text(t) => {
                 let font = cfg.roman_font(t);
                 let g = fonts.layout(t.to_owned(), font.clone(), Color32::WHITE, inner_w);
-                (DecoBody::Text(t.to_owned(), font), g.size(), hash(("r", t)))
+                (DecoBody::Text(t.to_owned(), font, g.clone()), g.size(), hash(("r", t)))
             }
         };
         let size = inner + pad * 2.0 + vec2(2.0, 2.0);
@@ -668,7 +674,11 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         // Timed words sit inside the pill's padding.
         let body = match body {
             DecoBody::Timed { words, groups } => DecoBody::Timed { words: words.into_iter().map(|w| Word { pos: w.pos + rect.min.to_vec2() + pad + vec2(1.0, 1.0), ..w }).collect(), groups },
-            b => b,
+            // Drawn wrapped at the pill's width.
+            DecoBody::Text(t, font, _) => {
+                let g = fonts.layout(t.clone(), font.clone(), Color32::WHITE, rect.width() + 1.0);
+                DecoBody::Text(t, font, g)
+            }
         };
         block.decos.push(Deco { body, rect, pill: true, id });
         y += size.y;
@@ -682,7 +692,8 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
             Align::Right => content_w - g.size().x,
             Align::Center => (content_w - g.size().x) * 0.5,
         };
-        block.decos.push(Deco { body: DecoBody::Text(t.to_owned(), font), rect: Rect::from_min_size(pos2(x, y), g.size()), pill: false, id: hash(("t", t)) });
+        let drawn = fonts.layout(t.to_owned(), font.clone(), Color32::WHITE, g.size().x + 1.0);
+        block.decos.push(Deco { body: DecoBody::Text(t.to_owned(), font, drawn), rect: Rect::from_min_size(pos2(x, y), g.size()), pill: false, id: hash(("t", t)) });
         y += g.size().y;
     }
     block.height = y + cfg.padding;
@@ -867,7 +878,8 @@ impl View {
         }
         self.atlas_fill = fill;
         let cfg = Cfg::new(f.style, f.accent, rect.width(), ctx.content_rect().width(), f.centered, f.scale);
-        let layout_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8));
+        // The pixel density too: the layout keeps its words' glyphs, rasterized at it.
+        let layout_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, ctx.pixels_per_point().to_bits()));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
         }
@@ -1051,13 +1063,12 @@ impl View {
             let block_rect = Rect::from_min_size(pos2(x0, top), vec2(line_w, b.height));
             let content = pos2(x0 + cfg.size * 0.25, top);
 
-            if let Some((text, font)) = &b.credits {
+            if let Some(g) = &b.credits {
                 let a = if credits_focused { 0.85 } else { 0.2 };
                 let a = theme::anim(&ctx, ("lyr-credits", f.key), a, 0.35);
                 let o = transform_origin(block_rect, b.align, content.x);
-                let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, line_w - cfg.size * 0.5));
                 let xf = Xf { origin: o, scale: cfg.scale, content };
-                paint_galley(&painter, &g, pos2(0.0, cfg.padding), &xf, theme::with_alpha(Color32::WHITE, a), atlas);
+                paint_galley(&painter, g, pos2(0.0, cfg.padding), &xf, theme::with_alpha(Color32::WHITE, a), atlas);
                 continue;
             }
             let li = b.line.unwrap();
@@ -1153,8 +1164,8 @@ impl View {
                     .decos
                     .iter()
                     .filter_map(|d| match &d.body {
-                        DecoBody::Text(text, font) => {
-                            let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, d.rect.width() + 1.0));
+                        DecoBody::Text(_, _, g) => {
+                            let g = g.clone();
                             let pad = if d.pill { vec2(cfg.rem() * 0.75 + 1.0, cfg.rem() * 0.25 + 1.0) } else { Vec2::ZERO };
                             Some((g, d.rect.min + pad, 0.6))
                         }
@@ -1173,7 +1184,7 @@ impl View {
                 animating |= st.exit.is_some();
             } else {
                 let lit = LitState::new(&cfg, st, t, f.now, sung_now || st.selected);
-                paint_words(&painter, &ctx, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, atlas, &mut glow_work, (f.key, i, 0));
+                paint_words(&painter, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, atlas, &mut glow_work, (f.key, i, 0));
                 for (k, d) in b.decos.iter().enumerate() {
                     let born = *self.deco_born.entry(d.id).or_insert(f.now);
                     let enter = ((f.now - born) / DECO_ENTRY).clamp(0.0, 1.0) as f32;
@@ -1183,7 +1194,7 @@ impl View {
                     }
                     // `blyrics-decoration-in`: fades in from 0.4em above.
                     let font_size = match &d.body {
-                        DecoBody::Text(_, f) => f.size,
+                        DecoBody::Text(_, f, _) => f.size,
                         DecoBody::Timed { words, .. } => words.first().map_or(cfg.rem() * 1.6, |w| w.font.size),
                     };
                     let dxf = Xf { content: xf.content + vec2(0.0, -0.4 * font_size * (1.0 - e)), ..xf };
@@ -1196,15 +1207,13 @@ impl View {
                     }
                     match &d.body {
                         DecoBody::Timed { words, groups } => {
-                            paint_words(&painter, &ctx, &cfg, words, groups, &dxf, &lit, dim, a, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
+                            paint_words(&painter, &cfg, words, groups, &dxf, &lit, dim, a, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
                         }
-                        DecoBody::Text(text, font) => {
-                            let wrap = d.rect.width() + 1.0;
-                            let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, wrap));
+                        DecoBody::Text(_, _, g) => {
                             let pad = if d.pill { vec2(cfg.rem() * 0.75 + 1.0, cfg.rem() * 0.25 + 1.0) } else { Vec2::ZERO };
                             // `--blyrics-translated-color`: white at 0.6. Drawn through the
                             // line's transform at the one laid-out size.
-                            paint_galley(&painter, &g, d.rect.min + pad, &dxf, theme::with_alpha(Color32::WHITE, 0.6 * a), atlas);
+                            paint_galley(&painter, g, d.rect.min + pad, &dxf, theme::with_alpha(Color32::WHITE, 0.6 * a), atlas);
                         }
                     }
                 }
@@ -1227,8 +1236,22 @@ impl View {
         // the lit text they belong to by inserting at the recorded positions.
         self.glow.finish(&ctx, &painter, glow_work, atlas, ppp);
         fade_edges(&ctx, painter.layer_id(), first_shape, rect, cfg.size);
-        if f.playing {
-            animating = true;
+        if f.playing && !animating {
+            // On the phone, a frame when the next thing changes instead of every frame:
+            // between lines (an instrumental break, a line-synced line once lit) nothing
+            // moves, and a frame costs the same either way. A line taller than the view
+            // pages down with the singing, so it goes on.
+            let wait = if super::mobile::phone(&ctx) && self.page.is_none() {
+                let song = next_change(layout, lines_n, t, early).map(|x| x - t);
+                let reader = user.then(|| self.user_until - f.now);
+                [song, reader].into_iter().flatten().reduce(f64::min)
+            } else {
+                None
+            };
+            match wait {
+                Some(w) => ctx.request_repaint_after(std::time::Duration::from_secs_f64(w.clamp(0.0, 60.0))),
+                None => animating = !super::mobile::phone(&ctx) || self.page.is_some(),
+            }
         }
         Out { seek, animating, user_scrolling: user }
     }
@@ -1256,7 +1279,8 @@ impl View {
             let names = &lyrics.songwriters;
             let text = if names.len() > 1 { format!("Written by {} & {}", names[..names.len() - 1].join(", "), names[names.len() - 1]) } else { format!("Written by {}", names[0]) };
             let font = theme::regular((cfg.size * 0.4).max(12.0));
-            let h = ui.ctx().fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, width - cfg.size * 0.5).size().y);
+            let g = ui.ctx().fonts_mut(|fv| fv.layout(text, font, Color32::WHITE, width - cfg.size * 0.5));
+            let h = g.size().y;
             blocks.push(Block {
                 line: None,
                 start: 0.0,
@@ -1268,7 +1292,7 @@ impl View {
                 words: vec![],
                 groups: vec![],
                 decos: vec![],
-                credits: Some((text, font)),
+                credits: Some(g),
             });
         }
         let mut y = 0.0;
@@ -1307,6 +1331,36 @@ impl View {
         }
         self.layout = Some(Layout { key, width, blocks, pad_top, content_h: pad_top + content + pad_bottom, richsync });
     }
+}
+
+/// The song time (`t`'s clock) after `t` at which the view next changes by itself while
+/// nothing animates: a line is selected, scrolled to, started or left, or a word nears
+/// its start (`LitState::animating`, and a tall line's paging).
+fn next_change(layout: &Layout, lines_n: usize, t: f64, early: f64) -> Option<f64> {
+    let mut next = f64::INFINITY;
+    let mut at = |x: f64| {
+        if x > t && x < next {
+            next = x;
+        }
+    };
+    for (i, b) in layout.blocks[..lines_n].iter().enumerate() {
+        let follow = layout.blocks.get(i + 1).filter(|n| n.line.is_some()).map_or(f64::INFINITY, |n| n.start);
+        let end = follow.max(b.start + b.dur + 0.05);
+        let sung = b.start + b.dur;
+        // Selection runs on `t`, scrolling on `t + SCROLL_OFFSET`.
+        for x in [b.start - early, b.start, end, b.start - EARLY_SCROLL, b.start, follow, sung, sung - ENDING_THRESHOLD].iter().enumerate().map(|(k, x)| if k < 3 { *x } else { x - SCROLL_OFFSET }) {
+            at(x);
+        }
+        let deco_words = b.decos.iter().flat_map(|d| match &d.body {
+            DecoBody::Timed { words, .. } => words.as_slice(),
+            DecoBody::Text(..) => &[],
+        });
+        for w in b.words.iter().chain(deco_words) {
+            at(w.start - 0.5);
+            at(w.start - SCROLL_OFFSET);
+        }
+    }
+    next.is_finite().then_some(next)
 }
 
 fn same_lines(l: &Layout, blocks: &[Block]) -> bool {
@@ -1658,8 +1712,8 @@ struct GlyphQuad {
 /// letter floats applied, then the group's wobble. Laid out once, at the font's size,
 /// and scaled with the line: a second size would put a second copy of every glyph in
 /// the shared font atlas, which only ever grows.
-fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Option<(f32, f32, f32)>, atlas: [usize; 2]) -> Vec<GlyphQuad> {
-    let g = ctx.fonts_mut(|fv| fv.layout_no_wrap(w.text.clone(), w.font.clone(), Color32::WHITE));
+fn word_glyphs(w: &Word, lit: &LitState, cfg: &Cfg, wob: Option<(f32, f32, f32)>, atlas: [usize; 2]) -> Vec<GlyphQuad> {
+    let g = &w.galley;
     let n: usize = g.rows.iter().map(|r| r.row.glyphs.len()).sum();
     let waves = if w.letters && lit.live && lit.exit.is_none() { Some(letter_waves(n, w.dur.max(0.0), cfg.wave_duration)) } else { None };
     let e = lit.t - w.start;
@@ -1763,7 +1817,6 @@ fn lit_gradient(q: &Rect, letter: usize, letters: usize, word: Rect, look: &Word
 #[allow(clippy::too_many_arguments)]
 fn paint_words(
     painter: &egui::Painter,
-    ctx: &egui::Context,
     cfg: &Cfg,
     words: &[Word],
     groups: &[Group],
@@ -1791,7 +1844,7 @@ fn paint_words(
         } else {
             None
         };
-        let quads = word_glyphs(ctx, w, lit, cfg, wob, atlas);
+        let quads = word_glyphs(w, lit, cfg, wob, atlas);
         let dim_c = if w.bg { dim * 0.78 } else { dim } * opacity;
         for q in &quads {
             push_quad(&mut base, xf.rect(q.rect), q.uv, theme::with_alpha(Color32::WHITE, dim_c), &|_| 1.0, &no_cut);
