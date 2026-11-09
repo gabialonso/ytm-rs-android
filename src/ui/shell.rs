@@ -426,11 +426,11 @@ fn refresh_button(ui: &mut Ui) -> egui::Response {
 pub fn top_bar(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        if icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
-            app.nav_back();
-        }
         // A phone has Back, and pulls nothing to refresh: just the box.
         let phone = super::mobile::phone(ui.ctx());
+        if !phone && icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
+            app.nav_back();
+        }
         if !phone && icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
             app.nav_forward();
         }

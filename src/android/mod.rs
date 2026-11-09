@@ -111,6 +111,12 @@ pub fn android_main(app: AndroidApp) {
     let _ = DATA_DIR.set(dir);
     log::info!("ytm-rs {} starting, data in {}", env!("CARGO_PKG_VERSION"), data_dir().display());
 
+    // The lyrics' word glow is a blur worked out on the CPU for each sung word: too slow
+    // for a phone. Set before anything reads it (a dev switch in karaoke.rs).
+    if std::env::var_os("YTM_LYR_OFF").is_none() {
+        // SAFETY: no other thread is running yet.
+        unsafe { std::env::set_var("YTM_LYR_OFF", "glow") };
+    }
     crate::stream::init_dev_hooks();
     crate::proxy::init(&data_dir());
 

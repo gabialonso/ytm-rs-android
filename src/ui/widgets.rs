@@ -194,7 +194,7 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     let d = size + 16.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
     let resp = named(resp, name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), super::mobile::hover(resp.hovered()), 0.15);
     if h > 0.0 {
         ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
     }
@@ -217,7 +217,7 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
     let icon_w = if glyph.is_some() { 24.0 } else { 0.0 };
     let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + icon_w + 36.0, 38.0), Sense::click());
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), super::mobile::hover(resp.hovered()), 0.15);
     let (fill, fg) = if primary {
         if theme::light() { (theme::lerp_color(theme::text(), Color32::BLACK, h), Color32::WHITE) } else { (theme::lerp_color(Color32::from_gray(240), Color32::WHITE, h), Color32::from_gray(12)) }
     } else {
@@ -250,7 +250,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(13.5), Color32::PLACEHOLDER);
     let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + 28.0, 34.0), Sense::click());
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), super::mobile::hover(resp.hovered()), 0.15);
     let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
     use crate::preset::ChipStyle;
     let style = crate::preset::active().app.chip;
@@ -387,7 +387,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let resp = named(resp, &c.title).on_hover_cursor(egui::CursorIcon::PointingHand);
     // contains_pointer, not hovered: the play button on top takes the hover, and the
     // card must stay "hovered" while the pointer is on it or the button would vanish.
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.22);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), super::mobile::hover(resp.contains_pointer()), 0.22);
     let img = Rect::from_min_size(rect.min, Vec2::splat(width));
     let radius = if c.round { width / 2.0 } else { theme::card_radius().min(width / 2.0) };
     paint_cover(ui, img, &c.thumbs, radius, 1.0 + 0.06 * h * theme::hover_k());
@@ -673,7 +673,7 @@ pub struct RowOpts {
     pub remove: Option<usize>,
 }
 
-const ROW_H: f32 = 56.0;
+const ROW_H: f32 = if cfg!(target_os = "android") { 52.0 } else { 56.0 };
 
 /// A song row's height with the space to the next.
 pub fn row_height(ui: &Ui) -> f32 {
@@ -707,7 +707,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let hit_rect = Rect::from_min_max(pos2(hit_left, rect.top()), pos2(rect.right() - 42.0, rect.bottom()));
     let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &t.title).on_hover_cursor(egui::CursorIcon::PointingHand);
     // Not while something's being dragged over it: only the drop place should show.
-    let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
+    let hovered = super::mobile::hover(base.contains_pointer()) && ui.ctx().dragged_id().is_none();
     let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
     if h > 0.0 || o.current {
         let a = if o.current { 0.07 + 0.05 * h } else { 0.07 * h };
@@ -850,7 +850,7 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
             }
             ui.label(egui::RichText::new(title).font(theme::bold(24.0)).color(theme::text()));
         });
-        if arrows {
+        if arrows && !super::mobile::phone(ui.ctx()) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 res.1 = icon_button(ui, icon::CHEVRON_RIGHT, 18.0, &format!("Scroll {title} right"), false).clicked();
                 res.0 = icon_button(ui, icon::CHEVRON_LEFT, 18.0, &format!("Scroll {title} left"), false).clicked();
@@ -888,7 +888,7 @@ fn shelf_page_target(starts: &[usize], step: f32, from: f32, nudge: i32) -> f32 
 
 /// Horizontal scroller that animates between aligned pages of cards or song columns.
 pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: f32, gap: f32, add: impl FnOnce(&mut Ui) -> R) -> (R, bool) {
-    let sid = egui::Id::unique(("hscroll", id));
+    let sid = super::mobile::carousel_id(ui.ctx(), egui::Id::unique(("hscroll", id)));
     let anim_id = sid.with("anim");
     // ScrollArea hashes its id_salt once more. Read that same ID, or left clicks
     // always appear to start from zero.
@@ -919,7 +919,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
             ui.ctx().data_mut(|d| d.remove::<f32>(target_id));
         }
     }
-    if let Some(x) = super::mobile::carousel_hold(ui, sid) {
+    if let Some(x) = super::mobile::carousel_hold(ui, state_id) {
         area = area.horizontal_scroll_offset(x);
     }
     // Give the last page enough trailing room to land exactly on its first item.
@@ -928,7 +928,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
         ui.set_min_width(content_width);
         add(ui)
     }).inner);
-    super::mobile::carousel_touch(ui, sid, out.inner_rect, out.state.clamped_offset().x);
+    super::mobile::carousel_touch(ui, out.id, out.state.unclamped_offset().x, step, count as f32 * step - gap, out.inner_rect.width());
     ui.ctx().data_mut(|d| d.insert_temp(viewport_id, out.inner_rect.width()));
     (out.inner, reached_end)
 }

@@ -16,10 +16,10 @@ use crate::theme::{self, icon};
 
 /// Wider than this (a tablet, a phone turned sideways) the desktop layout fits.
 const PHONE_MAX_W: f32 = 600.0;
-const MINI_H: f32 = 64.0;
-const TABS_H: f32 = 62.0;
+const MINI_H: f32 = 60.0;
+const TABS_H: f32 = 60.0;
 /// Now playing's seek bar, buttons and their bottom row.
-const CONTROLS_H: f32 = 196.0;
+const CONTROLS_H: f32 = 216.0;
 
 /// Whether to lay the app out for a phone: the Android build, upright.
 pub(super) fn phone(ctx: &egui::Context) -> bool {
@@ -149,10 +149,11 @@ fn mini_player(app: &mut App, ui: &mut Ui, r: Rect, now: f64) {
 /// Home, Explore and Library, along the bottom edge.
 fn tabs(app: &mut App, ui: &mut Ui, r: Rect) {
     let accent = app.accent_color();
-    let items: [(char, &str, Page, bool); 3] = [
+    let items: [(char, &str, Page, bool); 4] = [
         (icon::HOUSE, "Home", Page::Home, app.page == Page::Home),
         (icon::COMPASS, "Explore", Page::Explore, app.page == Page::Explore),
         (icon::LIBRARY, "Library", Page::Library(LibTab::Playlists), matches!(app.page, Page::Library(_))),
+        (icon::SETTINGS, "Settings", Page::Settings, app.page == Page::Settings),
     ];
     let w = r.width() / items.len() as f32;
     for (i, (glyph, label, page, selected)) in items.into_iter().enumerate() {
@@ -255,41 +256,95 @@ fn controls(app: &mut App, ui: &mut Ui, r: Rect, now: f64) {
         };
     }
 
-    // Like on the left; Lyrics and Up next (the side panel's two views) on the right.
-    let by = r.top() + 152.0;
-    if track.is_some() {
-        let liked = app.heard_liked();
-        let heard_id = app.playing_track().map(|t| t.id.clone()).unwrap_or_default();
-        let lr = Rect::from_center_size(pos2(r.left() + 18.0, by), Vec2::splat(44.0));
-        let lresp = named(ui.interact(lr, ui.scope_id().with("np-like"), Sense::click()), if liked { "Remove like" } else { "Like" });
-        let pop = theme::anim_bool(ui.ctx(), ("liked", &heard_id), liked, 0.3);
-        let size = 22.0 * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
-        widgets::heart(ui, lr.center(), size, pop, theme::lerp_color(dim, theme::RED, pop), theme::RED);
-        if lresp.clicked() {
-            app.actions.push(Action::LikeHeard(!liked));
-        }
-    }
+    // Up next and Lyrics (the side panel's two views), as two tabs side by side, along
+    // the bottom with room between them and the transport.
+    let by = r.bottom() - 30.0;
     let no_lyrics = app.no_lyrics();
-    let mut x = r.right();
-    for (tab, glyph, label) in [(NpTab::UpNext, icon::LIST_MUSIC, "Up next"), (NpTab::Lyrics, icon::MIC_VOCAL, "Lyrics")] {
+    let gap = 10.0;
+    let w = (r.width() - gap) / 2.0;
+    for (k, (tab, glyph, label)) in [(NpTab::UpNext, icon::LIST_MUSIC, "Up next"), (NpTab::Lyrics, icon::MIC_VOCAL, "Lyrics")].into_iter().enumerate() {
         let on = app.np_tab == tab && !(tab == NpTab::Lyrics && no_lyrics);
-        let g = widgets::galley(ui, label, theme::semibold(13.5), Color32::PLACEHOLDER, 200.0);
-        let w = g.size().x + 44.0;
-        let chip = Rect::from_min_max(pos2(x - w, by - 17.0), pos2(x, by + 17.0));
-        x = chip.left() - 8.0;
+        let chip = Rect::from_min_size(pos2(r.left() + k as f32 * (w + gap), by - 18.0), vec2(w, 36.0));
         let resp = named(ui.interact(chip, ui.scope_id().with(("np-tab", label)), Sense::click()), label);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), on, 0.2);
         let off = tab == NpTab::Lyrics && no_lyrics;
         let a = if off { 0.4 } else { 1.0 };
-        ui.painter().rect_filled(chip, 17.0, theme::with_alpha(theme::lerp_color(Color32::from_white_alpha(26), Color32::WHITE, s), a));
+        ui.painter().rect_filled(chip, 18.0, theme::with_alpha(theme::lerp_color(Color32::from_white_alpha(26), Color32::WHITE, s), a));
         let fg = theme::with_alpha(theme::lerp_color(Color32::WHITE, Color32::BLACK, s), a);
-        icon_at(ui, pos2(chip.left() + 20.0, by), glyph, 15.0, fg);
-        ui.painter().galley(pos2(chip.left() + 34.0, by - g.size().y / 2.0), g, fg);
+        let g = widgets::galley(ui, label, theme::semibold(13.5), fg, 200.0);
+        let x = chip.center().x - (g.size().x + 22.0) / 2.0;
+        icon_at(ui, pos2(x + 7.0, by), glyph, 15.0, fg);
+        ui.painter().galley(pos2(x + 22.0, by - g.size().y / 2.0), g, fg);
         if resp.clicked() && !off {
             // Tapping the view that's showing goes back to the artwork alone.
             app.np_tab = if app.np_tab == tab { NpTab::Art } else { tab };
         }
     }
+}
+
+/// The heart for what's heard, `size` big, centred in `r`; tap to like or unlike.
+fn like_button(app: &mut App, ui: &mut Ui, r: Rect, size: f32) {
+    let liked = app.heard_liked();
+    let heard_id = app.playing_track().map(|t| t.id.clone()).unwrap_or_default();
+    let resp = named(ui.interact(r, ui.scope_id().with(("np-like", r.min.x as i32, r.min.y as i32)), Sense::click()), if liked { "Remove like" } else { "Like" });
+    let pop = theme::anim_bool(ui.ctx(), ("liked", &heard_id), liked, 0.3);
+    let size = size * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
+    let dim = Color32::from_white_alpha(170);
+    widgets::heart(ui, r.center(), size, pop, theme::lerp_color(dim, theme::RED, pop), theme::RED);
+    if resp.clicked() {
+        app.actions.push(Action::LikeHeard(!liked));
+    }
+}
+
+/// Now playing's artwork view on a phone, laid out in `col`, as a music player has it:
+/// the cover across the width, then the title with the heart beside it, and the artists.
+/// False off a phone, for the desktop's own.
+pub(super) fn np_cover(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Track) -> bool {
+    if !phone(ui.ctx()) {
+        return false;
+    }
+    let cs = &app.look().cover;
+    // In line with the seek bar under it.
+    let col = col.shrink2(vec2(4.0, 0.0));
+    // Room under the cover for the title and artists.
+    const TEXT_H: f32 = 76.0;
+    let side = col.width().min(col.height() - TEXT_H).max(120.0);
+    let top = col.top() + ((col.height() - side - TEXT_H) * 0.4).max(0.0);
+    let art = Rect::from_min_size(pos2(col.center().x - side / 2.0, top), Vec2::splat(side));
+    let radius = cs.radius.clamp(0.0, side / 2.0).max(8.0);
+    widgets::paint_cover_px(ui, art, &track.thumbs, radius, 1.0, (side * ui.ctx().pixels_per_point()) as u32);
+    let title_y = art.bottom() + 20.0;
+    let text_w = side - 48.0;
+    text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(22.0), Color32::WHITE, text_w);
+    let line = track.artist_line();
+    widgets::linked_text(ui, pos2(art.left(), title_y + 32.0), &line, &track.artists, theme::regular(15.0), theme::text_dim(), text_w, &mut app.actions);
+    like_button(app, ui, Rect::from_center_size(pos2(art.right() - 18.0, title_y + 24.0), Vec2::splat(44.0)), 24.0);
+    true
+}
+
+/// While Lyrics or Up next fill now playing, the song stays in sight in its header, between
+/// the close button and the menu: a small cover, the title and artists, and the heart.
+pub(super) fn np_header(app: &mut App, ui: &mut Ui, header: Rect, track: &crate::model::Track) {
+    if !phone(ui.ctx()) {
+        return;
+    }
+    let panel = app.np_tab == NpTab::UpNext || (app.np_tab == NpTab::Lyrics && !app.no_lyrics());
+    let v = theme::anim_bool(ui.ctx(), "np-header-song", panel, 0.25);
+    if v <= 0.0 {
+        return;
+    }
+    // Clear of the close button on the left and the ⋯ menu on the right.
+    let r = Rect::from_min_max(pos2(header.left() + 50.0, header.top()), pos2(header.right() - 50.0, header.bottom()));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    child.multiply_opacity(v);
+    let ui = &mut child;
+    let art = Rect::from_min_size(pos2(r.left(), r.center().y - 20.0), Vec2::splat(40.0));
+    widgets::paint_cover_px(ui, art, &track.thumbs, 6.0, 1.0, (40.0 * ui.ctx().pixels_per_point()) as u32);
+    let heart = Rect::from_center_size(pos2(r.right() - 20.0, r.center().y), Vec2::splat(40.0));
+    let text_w = (heart.left() - art.right() - 16.0).max(40.0);
+    text_at(ui, pos2(art.right() + 10.0, r.center().y - 19.0), &track.title, theme::semibold(15.0), Color32::WHITE, text_w);
+    text_at(ui, pos2(art.right() + 10.0, r.center().y + 1.0), &track.artist_line(), theme::regular(13.0), theme::text_dim(), text_w);
+    like_button(app, ui, heart, 20.0);
 }
 
 /// The round play / pause button (a spinner while the song loads), as on the player bar.
@@ -329,6 +384,38 @@ fn play_button(app: &App, ui: &mut Ui, r: Rect, glyph_r: f32, now: f64) -> egui:
 
 /// Width of a card in a grid with `gap` between cards: two columns on a phone, `desktop`
 /// elsewhere.
+/// A carousel column's width (Quick picks): the whole width on a phone, so no column
+/// shows cut off at the edge.
+pub(super) fn column_width(ui: &Ui, desktop: f32) -> f32 {
+    if phone(ui.ctx()) { ui.available_width().floor() } else { desktop }
+}
+
+/// Frame pacing on a phone, in place of the desktop's (true when it's set): each frame
+/// lays the whole UI out again, the main cost on the battery. The seek bar and the mini
+/// player's line move a fraction of a point a second, so 4 fps reads as smooth; the
+/// playing row's bars get 30, and the synced lyrics ask for their own while they move.
+pub(super) fn pace(app: &App, ctx: &egui::Context) -> bool {
+    if !phone(ctx) || app.window_hidden {
+        return false;
+    }
+    if app.playing() || app.buffering {
+        let lyrics = app.np_open && app.np_tab == NpTab::Lyrics && !app.no_lyrics();
+        let ms = if lyrics || widgets::equalizer_shown(ctx) { 33 } else { 250 };
+        ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+    }
+    true
+}
+
+/// The synced lyrics are moving: the next frame. On a phone at most 60 a second, not
+/// one for each refresh of a 120 Hz screen.
+pub(super) fn lyrics_frame(ctx: &egui::Context) {
+    if phone(ctx) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(15));
+    } else {
+        ctx.request_repaint();
+    }
+}
+
 pub(super) fn card_width(ui: &Ui, desktop: f32, gap: f32) -> f32 {
     if phone(ui.ctx()) { ((ui.available_width() - gap) / 2.0).floor().min(desktop + 40.0) } else { desktop }
 }
@@ -349,6 +436,10 @@ pub(super) fn hidden_setting(title: &str) -> bool {
         "Show music videos",
         "Ambient light",
         "Windows proxy",
+        "Zoom",
+        "Logarithmic volume",
+        "Animated background",
+        "Pulse with the music",
     ];
     cfg!(target_os = "android") && HIDDEN.contains(&title)
 }
@@ -394,66 +485,174 @@ pub(super) fn row_or_column<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> e
     if phone(ui.ctx()) { ui.vertical(add) } else { ui.horizontal_top(add) }
 }
 
-/// A carousel's touch gesture: which way it went, decided once the finger has moved a
-/// little. Up and down is the page's, though it started on the carousel.
+/// How far a finger moves on a carousel before the swipe counts as sideways or up and down.
+const SLOP: f32 = 8.0;
+/// How far ahead a sideways flick throws a carousel: its speed times this many seconds,
+/// at most a screen's width, then it settles on the nearest card.
+const FLING: f32 = 0.2;
+/// How long a carousel takes to settle on a card once the finger lets go.
+const SETTLE: f64 = 0.28;
+
+/// What a touch that landed on a carousel turned out to be.
 #[derive(Clone, Copy)]
-enum Axis {
+enum Swipe {
+    /// Too short to tell yet: the carousel stays at this offset.
+    Undecided(f32),
+    /// Sideways: the carousel follows the finger.
     Sideways,
-    /// Held at this offset while the page scrolls.
+    /// Up or down: handed to the page, while the carousel stays at this offset.
     Page(f32),
-    /// The finger let go of a page scroll: it glides on at this speed (points a second).
-    Glide(f32),
+    /// Let go after a sideways swipe: gliding from one offset to a card's, since a time.
+    Settle(f32, f32, f64),
 }
 
-/// The offset to hold a carousel at while a gesture that started on it scrolls the page.
-pub(super) fn carousel_hold(ui: &Ui, id: egui::Id) -> Option<f32> {
-    match ui.data(|d| d.get_temp::<Axis>(id.with("axis"))) {
-        Some(Axis::Page(x)) => Some(x),
-        _ => None,
-    }
+fn page_drag_key() -> egui::Id {
+    egui::Id::unique("mobile-page-drag")
 }
 
-/// After a carousel is shown (`rect`, scrolled to `offset`): an up-and-down swipe that
-/// started on it goes to the page around it, which egui's nested scrolling wouldn't do.
-pub(super) fn carousel_touch(ui: &Ui, id: egui::Id, rect: Rect, offset: f32) {
+/// Remembers the page's scroll area (built in `ui` with this `id_salt`), so a swipe up
+/// or down that lands on a carousel can be handed to it. `back`: how many pages Back
+/// goes through. A page opened anew starts at its top with its carousels at their start;
+/// one gone back to is where it was left.
+pub(super) fn page_scroll(ui: &Ui, salt: impl egui::AsIdSalt, back: usize) {
     if !phone(ui.ctx()) {
         return;
     }
-    let key = id.with("axis");
-    let state = ui.data(|d| d.get_temp::<Axis>(key));
-    let (origin, latest, delta, down, velocity, dt) =
-        ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos(), i.pointer.delta(), i.pointer.primary_down(), i.pointer.velocity(), i.stable_dt));
-    let scroll = |dy: f32| ui.ctx().input_mut(|i| i.smooth_scroll_delta.y += dy);
-    match state {
-        _ if down && origin.is_some_and(|o| rect.contains(o)) => match state {
-            None => {
-                if let (Some(o), Some(p)) = (origin, latest) {
-                    let moved = p - o;
-                    if moved.length() > 10.0 {
-                        let axis = if moved.y.abs() > moved.x.abs() { Axis::Page(offset) } else { Axis::Sideways };
-                        if let Axis::Page(_) = axis {
-                            scroll(moved.y);
-                        }
-                        ui.data_mut(|d| d.insert_temp(key, axis));
-                    }
-                }
-            }
-            Some(Axis::Page(_)) => scroll(delta.y),
-            _ => {}
-        },
-        Some(Axis::Page(_)) => {
-            // Let go: the page glides on, as it does when the swipe starts on it.
-            ui.data_mut(|d| d.insert_temp(key, Axis::Glide(velocity.y)));
-            ui.ctx().request_repaint();
-        }
-        Some(Axis::Glide(v)) if v.abs() > 20.0 && !down => {
-            scroll(v * dt);
-            ui.data_mut(|d| d.insert_temp(key, Axis::Glide(v * (-4.0 * dt).exp())));
-            ui.ctx().request_repaint();
-        }
-        Some(_) => ui.data_mut(|d| d.remove::<Axis>(key)),
-        None => {}
+    let state = ui.make_persistent_id(egui::IdSalt::new(salt));
+    // The ID ScrollArea gives its drag-to-scroll background.
+    let id = state.with("area");
+    let last_key = egui::Id::unique("mobile-last-page");
+    let last = ui.ctx().data(|d| d.get_temp::<(egui::Id, usize)>(last_key));
+    if let Some((last_id, last_back)) = last
+        && last_id != id
+        && back > last_back
+    {
+        ui.ctx().data_mut(|d| {
+            d.remove::<egui::scroll_area::State>(state);
+            *d.get_temp_mut_or_default::<u32>(id.with("visit")) += 1;
+        });
     }
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(last_key, (id, back));
+        d.insert_temp(page_drag_key(), id);
+    });
+}
+
+/// A carousel's ID, `id` on its own page and visit: each artist, each search keeps its
+/// carousels' offsets until it's opened anew, rather than opening at the last one's.
+pub(super) fn carousel_id(ctx: &egui::Context, id: egui::Id) -> egui::Id {
+    match ctx.data(|d| d.get_temp::<egui::Id>(page_drag_key())) {
+        Some(page) if phone(ctx) => id.with((page, ctx.data(|d| d.get_temp::<u32>(page.with("visit")).unwrap_or(0)))),
+        _ => id,
+    }
+}
+
+/// The offset to keep the carousel with scroll area `area` at, while its swipe isn't
+/// sideways or it settles on a card.
+pub(super) fn carousel_hold(ui: &mut Ui, area: egui::Id) -> Option<f32> {
+    if !phone(ui.ctx()) {
+        return None;
+    }
+    // No coasting of egui's own: letting go settles on a card instead (`carousel_touch`).
+    ui.spacing_mut().scroll.kinetic.decay_time = 0.0;
+    match ui.data(|d| d.get_temp::<Swipe>(area.with("swipe")))? {
+        Swipe::Undecided(x) | Swipe::Page(x) => Some(x),
+        Swipe::Settle(from, to, since) => {
+            let t = ((ui.input(|i| i.time) - since) / SETTLE).clamp(0.0, 1.0) as f32;
+            Some(from + (to - from) * theme::ease_out(t))
+        }
+        Swipe::Sideways => None,
+    }
+}
+
+/// After the carousel with scroll area `area` is shown, scrolled to `offset`, with cards
+/// `step` apart (0: no cards to settle on), its last one ending at `end`, `view` wide. egui gives the whole drag to the innermost
+/// scroll area, which here only moves sideways; once a swipe that landed on the carousel
+/// goes up or down, the page takes the drag over, with its own glide when the finger
+/// lets go. A sideways one ends on a whole card.
+pub(super) fn carousel_touch(ui: &Ui, area: egui::Id, offset: f32, step: f32, end: f32, view: f32) {
+    if !phone(ui.ctx()) {
+        return;
+    }
+    let ctx = ui.ctx();
+    let key = area.with("swipe");
+    let state = ctx.data(|d| d.get_temp::<Swipe>(key));
+    let (down, now) = ctx.input(|i| (i.pointer.primary_down(), i.time));
+    let set = |s: Swipe| {
+        ctx.data_mut(|d| d.insert_temp(key, s));
+        ctx.request_repaint();
+    };
+    match state {
+        None | Some(Swipe::Settle(..)) if down && ctx.is_being_dragged(area.with("area")) => {
+            // Just landed: undo this frame's move and wait for the direction.
+            set(Swipe::Undecided(offset + ctx.input(|i| i.pointer.delta().x)));
+        }
+        Some(Swipe::Undecided(x)) if down => {
+            let Some(moved) = ctx.input(|i| Some(i.pointer.latest_pos()? - i.pointer.press_origin()?)) else { return };
+            if moved.length() < SLOP {
+                return;
+            }
+            match ctx.data(|d| d.get_temp::<egui::Id>(page_drag_key())) {
+                // Leaning towards up and down: a page scroll that crosses a carousel stays one.
+                Some(page) if moved.y.abs() > moved.x.abs() * 0.8 => {
+                    ctx.set_dragged_id(page);
+                    set(Swipe::Page(x));
+                }
+                _ => set(Swipe::Sideways),
+            }
+        }
+        Some(Swipe::Sideways) if !down => {
+            // The offset runs against the finger.
+            let throw = (-ctx.input(|i| i.pointer.velocity().x) * FLING).clamp(-view, view);
+            // Stops with the last card at the right edge, not a page's worth of room after it.
+            let max = (end - view).max(0.0);
+            let to = if step > 0.0 { ((offset + throw) / step).round() * step } else { offset + throw };
+            set(Swipe::Settle(offset, to.clamp(0.0, max), now));
+        }
+        Some(Swipe::Settle(_, _, since)) if now - since < SETTLE => ctx.request_repaint(),
+        Some(Swipe::Undecided(_) | Swipe::Page(_) | Swipe::Settle(..)) if !down => ctx.data_mut(|d| d.remove::<Swipe>(key)),
+        _ => {}
+    }
+}
+
+/// A row of chips: wrapped onto more lines on a wider screen; on a phone, one line that
+/// scrolls sideways like a carousel.
+pub(super) fn wrapped_or_scroll<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if !phone(ui.ctx()) {
+        return ui.horizontal_wrapped(add).inner;
+    }
+    let sid = carousel_id(ui.ctx(), egui::Id::unique(("chip-row", id)));
+    let state_id = ui.make_persistent_id(egui::IdSalt::new(sid));
+    let mut area = egui::ScrollArea::horizontal().id_salt(sid).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+    if let Some(x) = carousel_hold(ui, state_id) {
+        area = area.horizontal_scroll_offset(x);
+    }
+    let out = area.show(ui, |ui| ui.horizontal(add).inner);
+    carousel_touch(ui, out.id, out.state.unclamped_offset().x, 0.0, out.content_size.x, out.inner_rect.width());
+    out.inner
+}
+
+/// Whether to show a hover effect: never on a touch screen, where it would light up
+/// whatever a finger passes over while scrolling, and stay after a tap.
+pub(super) fn hover(on: bool) -> bool {
+    on && !cfg!(target_os = "android")
+}
+
+/// The lyrics' look on Android: no blurred lines. Each blur is a Gaussian worked out on
+/// the CPU, again on every frame a line's blur or size changes, too slow at a phone's
+/// pixel density. (The words' glow is off too: `YTM_LYR_OFF`, set in `android_main`.)
+pub(super) fn lyric_style(s: &'static crate::preset::LyricStyle) -> std::borrow::Cow<'static, crate::preset::LyricStyle> {
+    if !cfg!(target_os = "android") {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut s = s.clone();
+    s.blur = 0.0;
+    if let Some(css) = &mut s.css {
+        for v in [&mut css.past, &mut css.upcoming].into_iter().flatten() {
+            v[1] = 0.0;
+        }
+    }
+    std::borrow::Cow::Owned(s)
 }
 
 /// Room for a page's cover (an album's, a playlist's): `side` square on a wider screen;

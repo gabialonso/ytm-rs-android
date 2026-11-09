@@ -130,7 +130,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         // Around the ⋯ button and where they'll show, a little below the header too.
         let near = Rect::from_min_max(pos2(ui.cursor().right() - full_w - 48.0, header.top()), pos2(menu_right + 24.0, header.bottom() + 24.0));
         let hovered = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| near.contains(p));
-        let t = theme::anim_bool(ui.ctx(), "np-header-extras", hovered || focused, 0.2);
+        // A phone has them under the artwork, and no pointer to come near.
+        let t = theme::anim_bool(ui.ctx(), "np-header-extras", (hovered || focused) && !super::mobile::phone(ui.ctx()), 0.2);
         if t <= 0.0 {
             ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, false)));
             return;
@@ -174,6 +175,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, focused)));
     });
 
+    super::mobile::np_header(app, ui, header, &track);
     let content = Rect::from_min_max(pos2(area.left(), header.bottom() + 12.0), area.max);
     if video_mode {
         video_stage(app, ui, content, &track);
@@ -292,6 +294,9 @@ fn art_side(cs: &crate::preset::CoverStyle, col: Rect) -> f32 {
 #[allow(clippy::too_many_arguments)]
 fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Track, no_lyrics: bool, now: f64, px: u32) {
     use crate::preset::Shape;
+    if super::mobile::np_cover(app, ui, col, track) {
+        return;
+    }
     let look = app.look();
     let cs = &look.cover;
     let side = art_side(cs, col);
@@ -340,10 +345,12 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if cover.clicked() { app.actions.push(Action::TogglePlay); }
     let w = side;
     let title_y = art.bottom() + 22.0;
-    text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(28.0), Color32::WHITE, w);
+    let title_size = if crate::ui::mobile::phone(ui.ctx()) { 24.0 } else { 28.0 };
+    text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(title_size), Color32::WHITE, w);
     // Each artist opens their own page (features included).
     let line = track.artist_line();
-    widgets::linked_text(ui, pos2(art.left(), title_y + 40.0), &line, &track.artists, theme::regular(17.0), theme::text_dim(), w, &mut app.actions);
+    let artist_size = if crate::ui::mobile::phone(ui.ctx()) { 15.0 } else { 17.0 };
+    widgets::linked_text(ui, pos2(art.left(), title_y + 40.0), &line, &track.artists, theme::regular(artist_size), theme::text_dim(), w, &mut app.actions);
     if no_lyrics && app.np_tab == NpTab::Lyrics {
         // A brief note, faded out after a few seconds.
         let since = ui.ctx().memory_mut(|m| *m.data.get_temp_mut_or_insert_with(egui::Id::unique(("no-lyrics", &track.id)), || now));
@@ -546,7 +553,7 @@ fn decorations<'a>(
 }
 
 fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now: f64, narrow: bool) {
-    let style = &app.look().lyrics;
+    let style = &*super::mobile::lyric_style(&app.look().lyrics);
     let accent = app.accent_color();
     let centered = narrow || style.align == crate::preset::Align::Center;
     let playing = app.playing();
@@ -581,7 +588,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         app.actions.push(Action::Seek(s as f32));
     }
     if out.animating {
-        ui.ctx().request_repaint();
+        super::mobile::lyrics_frame(ui.ctx());
     }
     // The extension's `.autoscroll-resume-button` (YouTube Music's rem is 10 px): a frosted
     // pill under the top edge in the lyrics font at 600, 1.75rem; padding .5rem 1rem;
