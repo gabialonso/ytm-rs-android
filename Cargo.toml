@@ -42,7 +42,7 @@ symphonia = { version = "0.5.5", default-features = false, features = ["mkv"] }
 rusty-opus = "1.0.2"
 unicode-bidi = "0.3"
 
-# Everything a desktop build has and the Android port leaves out (see HANDOFF.md):
+# Everything a desktop build has and the Android port leaves out (see .github/README.md):
 # webview sign-in, tray, OS media controls, file dialogs, Discord, video.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "wayland", "x11", "wgpu_no_default_features"] }

@@ -124,8 +124,6 @@ pub fn android_main(app: AndroidApp) {
         // SAFETY: no other thread is running yet.
         unsafe { std::env::set_var("YTM_LYR_OFF", "glow") };
     }
-    // Covers used to be kept with the app's data; they're cache now (images.rs).
-    let _ = std::fs::remove_dir_all(data_dir().join("thumbs"));
     crate::stream::init_dev_hooks();
     crate::proxy::init(&data_dir());
 
@@ -177,12 +175,6 @@ fn create(cc: &eframe::CreationContext) -> anyhow::Result<Box<dyn eframe::App>> 
     let _ = AUDIO.set(audio.clone());
     let media = crate::media::Media::new(None, media_tx, wake);
 
-    if let Some(gl) = &cc.gl {
-        use eframe::glow::HasContext;
-        // SAFETY: plain string queries on the current context.
-        let (renderer, version) = unsafe { (gl.get_parameter_string(eframe::glow::RENDERER), gl.get_parameter_string(eframe::glow::VERSION)) };
-        log::info!("gl: {renderer} ({version})");
-    }
     let bg = cc.gl.as_ref().and_then(|gl| crate::shader::Background::new(gl).map_err(|e| log::warn!("background shader unavailable: {e:#}")).ok());
 
     let status = audio.status.clone();
@@ -273,17 +265,13 @@ pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onBack(_env: JNIEn
 /// or the activity is destroyed for good).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_gabialonso_ytmrs_Bridge_onClosing(_env: JNIEnv, _class: JClass) {
-    if let Some(audio) = AUDIO.get() {
-        audio.send(crate::audio::AudioCmd::Stop);
-        log::info!("onClosing: audio stop sent");
-    }
+    stop_audio();
 }
 
 /// Stop playback: called from `Bridge.onClosing` (Java) and from `Shell::on_exit` (Rust).
 pub fn stop_audio() {
     if let Some(audio) = AUDIO.get() {
         audio.send(crate::audio::AudioCmd::Stop);
-        log::info!("stop_audio: audio stop sent");
     }
 }
 

@@ -93,7 +93,6 @@ final class Turnstile {
     private static void showIfStuck() {
         Activity a = Bridge.visibleActivity();
         if (done || a == null) return;
-        Log.i(TAG, "lyrics verification: showing the challenge");
         dialog = new Dialog(a);
         dialog.setTitle("Verifying lyrics access");
         dialog.setContentView(web, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, web.getHeight()));
